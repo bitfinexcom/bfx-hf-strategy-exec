@@ -1,6 +1,6 @@
 'use strict'
 
-const debug = require('debug')('hf:strategy:exec')
+const debug = require('debug')('bfx:hf:strategy-exec')
 const { subscribe } = require('bfx-api-node-core')
 const { padCandles } = require('bfx-api-node-util')
 const { candleWidth } = require('bfx-hf-util')
