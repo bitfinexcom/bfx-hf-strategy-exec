@@ -9,7 +9,7 @@ const _reverse = require('lodash/reverse')
 const PromiseThrottle = require('promise-throttle')
 
 const {
-  onSeedCandle, onCandle, onCandleUpdate, onTrade, indicatorValues
+  onSeedCandle, onCandle, onCandleUpdate, onTrade
 } = require('bfx-hf-strategy')
 
 const CANDLE_FETCH_LIMIT = 1000
@@ -46,7 +46,7 @@ module.exports = async (strategy = {}, wsManager = {}, args = {}) => {
         query: {
           limit: CANDLE_FETCH_LIMIT,
           start,
-          end,
+          end
         }
       }))
     )
@@ -119,14 +119,13 @@ module.exports = async (strategy = {}, wsManager = {}, args = {}) => {
     processing = true
 
     while (!_isEmpty(messages)) {
-      const [ msg ] = messages.splice(0, 1)
+      const [msg] = messages.splice(0, 1)
 
       await processMessage(msg)
     }
 
     processing = false
   }
-
 
   if (includeTrades) {
     wsManager.onWS('trades', { symbol }, async (trades) => {
