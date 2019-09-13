@@ -1,6 +1,6 @@
 {
   "name": "bfx-hf-strategy-exec",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Execution logic for bfx-hf-strategy",
   "main": "./index.js",
   "directories": {
