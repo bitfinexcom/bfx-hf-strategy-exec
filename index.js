@@ -18,7 +18,18 @@ const pt = new PromiseThrottle({
   promiseImplementation: Promise
 })
 
-module.exports = async (strategy = {}, wsManager = {}, args = {}) => {
+/**
+ * Execute a strategy on a live market
+ *
+ * @param {Object} strategy - as created by define() from bfx-hf-strategy
+ * @param {Object} wsManager - WSv2 pool instance from bfx-api-node-core
+ * @param {Object} args - execution parameters
+ * @param {string} args.symbol - market to execute on
+ * @param {string} args.tf - time frame to execute on
+ * @param {boolean} args.includeTrades - if true, trade data is subscribed to and processed
+ * @param {number} args.seedCandleCount - size of indicator candle seed window, before which trading is disabled
+ */
+const exec = async (strategy = {}, wsManager = {}, args = {}) => {
   const { symbol, tf, includeTrades, seedCandleCount = 5000 } = args
   const candleKey = `trade:${tf}:${symbol}`
   const messages = []
@@ -160,3 +171,5 @@ module.exports = async (strategy = {}, wsManager = {}, args = {}) => {
     return nextSocket
   })
 }
+
+module.exports = exec
