@@ -42,7 +42,7 @@ ws2Manager.openWS()
 
 ### Docs
 
-For executable examples refer to the `examples/` folder. JSDoc generated API documentation can be found within `docs/api.md`.
+For executable examples refer to the [`examples/`](/examples) folder. JSDoc generated API documentation can be found [within `docs/api.md`](/docs/api.md).
 
 ### Contributing
 
