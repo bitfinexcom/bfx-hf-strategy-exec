@@ -1,6 +1,6 @@
 {
   "name": "bfx-hf-strategy-exec",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Execution logic for bfx-hf-strategy",
   "main": "./index.js",
   "directories": {
@@ -37,6 +37,7 @@
     "BTC"
   ],
   "dependencies": {
+    "babel": "^6.23.0",
     "babel-core": "^6.26.3",
     "babel-plugin-transform-object-rest-spread": "^6.23.0",
     "babel-plugin-transform-regenerator": "^6.24.1",
