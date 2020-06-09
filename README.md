@@ -2,13 +2,19 @@
 
 [![Build Status](https://travis-ci.org/bitfinexcom/bfx-hf-strategy-exec.svg?branch=master)](https://travis-ci.org/bitfinexcom/bfx-hf-strategy-exec)
 
-This module can execute strategies built with `bfx-hf-strategy` on a live data stream from Bitfinex via v2 of the WS API. Strategy indicators are initially seeded with the last 1000 candles by default, but this is configurably with the `seedCandleCount` argument. Trade data can be included on the stream by passing `includeTrades: true` when calling `exec()`.
+This module can execute strategies built with `bfx-hf-strategy` on a live data
+stream from Bitfinex via v2 of the WS API. Strategy indicators are initially
+seeded with the last 1000 candles by default, but this is configurably with the
+`seedCandleCount` argument. Trade data can be included on the stream by passing
+`includeTrades: true` when calling `exec()`.
 
 ### Features
 
-* Cross-compatible with `bfx-hf-backtest` allowing the same strategy to be both backtested and executed seamlessly
+* Cross-compatible with `bfx-hf-backtest` allowing the same strategy to be both
+  backtested and executed seamlessly
 * Execute trading strategies on the live Bitfinex markets
-* Utilizes a multiplexing websocket connection manager to scale with channel subscriptions
+* Utilizes a multiplexing websocket connection manager to scale with channel
+  subscriptions
 
 ### Installation
 
@@ -17,6 +23,7 @@ npm i --save bfx-hf-strategy-exec
 ```
 
 ### Quickstart & Example
+
 ```js
 const { SYMBOLS, TIME_FRAMES } = require('bfx-hf-util')
 const { Manager } = require('bfx-api-node-core')
@@ -42,7 +49,8 @@ ws2Manager.openWS()
 
 ### Docs
 
-For executable examples refer to the [`examples/`](/examples) folder. JSDoc generated API documentation can be found [within `docs/api.md`](/docs/api.md).
+API documentation can be found in [`docs/reference.md`](docs/reference.md), and
+examples in the [`examples`](examples) folder.
 
 ### Contributing
 

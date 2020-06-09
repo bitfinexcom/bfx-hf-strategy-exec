@@ -21,13 +21,61 @@ const pt = new PromiseThrottle({
 /**
  * Execute a strategy on a live market
  *
- * @param {Object} strategy - as created by define() from bfx-hf-strategy
- * @param {Object} wsManager - WSv2 pool instance from bfx-api-node-core
- * @param {Object} args - execution parameters
+ * @module bfx-hf-strategy-exec
+ * @license Apache-2.0
+ * @function
+ *
+ * @param {bfx-hf-strategy.StrategyState} strategy - as created by define()
+ *   from bfx-hf-strategy
+ * @param {bfx-api-node-core.Manager} wsManager - WSv2 pool instance
+ * @param {object} args - execution parameters
  * @param {string} args.symbol - market to execute on
  * @param {string} args.tf - time frame to execute on
- * @param {boolean} args.includeTrades - if true, trade data is subscribed to and processed
- * @param {number} args.seedCandleCount - size of indicator candle seed window, before which trading is disabled
+ * @param {boolean} args.includeTrades - if true, trade data is subscribed to
+ *   and processed
+ * @param {number} [args.seedCandleCount=5000] - size of indicator candle seed
+ *   window, before which trading is disabled
+ *
+ * @example
+ * const debug = require('debug')('bfx:hf:strategy-exec:example:exec')
+ * const { SYMBOLS, TIME_FRAMES } = require('bfx-hf-util')
+ * const { Manager } = require('bfx-api-node-core')
+ * const EMACrossStrategy = require('./ema_cross_strategy')
+ * const exec = require('bfx-hf-strategy-exec')
+ *
+ * const API_KEY = '...'
+ * const API_SECRET = '...'
+ *
+ * const ws2Manager = new Manager({
+ *   apiKey: API_KEY,
+ *   apiSecret: API_SECRET,
+ *   transform: true
+ * })
+ *
+ * const strategy = await EMACrossStrategy({
+ *   symbol: SYMBOLS.EOS_USD,
+ *   tf: TIME_FRAMES.ONE_DAY,
+ *   amount: 1,
+ *   margin: true
+ * })
+ *
+ * ws2Manager.onWS('open', {}, (state = {}) => debug('connected to ws2 API'))
+ * ws2Manager.onceWS('event:auth:success', {}, async (authEvent, ws) => {
+ *   debug('authenticated')
+ *   debug('executing strategy...')
+ *
+ *   strategy.ws = ws
+ *
+ *   await exec(strategy, ws2Manager, {
+ *     symbol: SYMBOLS.EOS_USD,
+ *     tf: TIME_FRAMES.ONE_DAY,
+ *     includeTrades: true,
+ *     seedCandleCount: 5000
+ *   })
+ * })
+ *
+ * debug('opening socket...')
+ * ws2Manager.openWS()
  */
 const exec = async (strategy = {}, wsManager = {}, args = {}) => {
   const { symbol, tf, includeTrades, seedCandleCount = 5000 } = args
