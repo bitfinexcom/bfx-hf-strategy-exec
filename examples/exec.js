@@ -5,6 +5,8 @@ process.env.DEBUG = '*'
 const debug = require('debug')('bfx:hf:strategy-exec:example:exec')
 const { SYMBOLS, TIME_FRAMES } = require('bfx-hf-util')
 const { Manager } = require('bfx-api-node-core')
+const WDPlugin = require('bfx-api-node-plugin-wd')
+
 const EMACrossStrategy = require('./ema_cross_strategy')
 const exec = require('../')
 
@@ -14,7 +16,13 @@ const API_SECRET = '...'
 const ws2Manager = new Manager({
   apiKey: API_KEY,
   apiSecret: API_SECRET,
-  transform: true
+  transform: true,
+
+  plugins: [WDPlugin({
+    autoReconnect: true, // if false, the connection will only be closed
+    reconnectDelay: 5000, // wait 5 seconds before reconnecting
+    packetWDDelay: 10000 // set the watch-dog to a 10s delay
+  })]
 })
 
 const run = async () => {

@@ -40,6 +40,10 @@ ws2Manager.onceWS('event:auth:success', {}, async (authEvent, ws) => {
 ws2Manager.openWS()
 ```
 
+#### Reconnections
+
+Please note that the connection is handled by the `bfx-api-node-core` websocket manager. For a full example that uses the Watchdog Plugin, take a look at the [example](/examples/exec.js)
+
 ### Docs
 
 For executable examples refer to the [`examples/`](/examples) folder. JSDoc generated API documentation can be found [within `docs/api.md`](/docs/api.md).
