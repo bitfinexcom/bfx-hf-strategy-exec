@@ -102,6 +102,7 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
 
     switch (type) {
       case 'trade': {
+        data.symbol = symbol
         debug('recv trade: %j', data)
         strategyState = await onTrade(strategyState, data)
         break
@@ -144,8 +145,7 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
         return
       }
 
-      const [trade] = trades
-      enqueMessage('trade', trade)
+      enqueMessage('trade', trades)
     })
   }
 
