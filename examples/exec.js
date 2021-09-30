@@ -2,6 +2,7 @@
 
 process.env.DEBUG = '*'
 
+const { RESTv2 } = require('bfx-api-node-rest')
 const debug = require('debug')('bfx:hf:strategy-exec:example:exec')
 const { SYMBOLS, TIME_FRAMES } = require('bfx-hf-util')
 const { Manager } = require('bfx-api-node-core')
@@ -12,6 +13,8 @@ const exec = require('../')
 
 const API_KEY = '...'
 const API_SECRET = '...'
+
+const rest = new RESTv2({ url: 'https://api.bitfinex.com', transform: true })
 
 const ws2Manager = new Manager({
   apiKey: API_KEY,
@@ -40,7 +43,7 @@ const run = async () => {
 
     strategy.ws = ws
 
-    await exec(strategy, ws2Manager, {
+    await exec(strategy, ws2Manager, rest, {
       symbol: SYMBOLS.EOS_USD,
       tf: TIME_FRAMES.ONE_DAY,
       includeTrades: true,
