@@ -29,7 +29,7 @@ const pt = new PromiseThrottle({
  * @param {boolean} args.includeTrades - if true, trade data is subscribed to and processed
  * @param {number} args.seedCandleCount - size of indicator candle seed window, before which trading is disabled
  */
-const exec = async (strategy = {}, wsManager = {}, args = {}) => {
+const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
   const { symbol, tf, includeTrades, seedCandleCount = 5000 } = args
   const candleKey = `trade:${tf}:${symbol}`
   const messages = []
@@ -51,7 +51,7 @@ const exec = async (strategy = {}, wsManager = {}, args = {}) => {
     const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), now)
 
     const candleResponse = await pt.add(
-      wsManager.rest.candles.bind(wsManager.rest, ({
+      rest.candles.bind(rest, ({
         symbol,
         timeframe: tf,
         query: {
@@ -102,6 +102,7 @@ const exec = async (strategy = {}, wsManager = {}, args = {}) => {
 
     switch (type) {
       case 'trade': {
+        data.symbol = symbol
         debug('recv trade: %j', data)
         strategyState = await onTrade(strategyState, data)
         break
@@ -144,8 +145,7 @@ const exec = async (strategy = {}, wsManager = {}, args = {}) => {
         return
       }
 
-      const [trade] = trades
-      enqueMessage('trade', trade)
+      enqueMessage('trade', trades)
     })
   }
 
