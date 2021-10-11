@@ -42,14 +42,14 @@
     "bfx-api-node-core": "^1.1.0"
   },
   "devDependencies": {
-    "chai": "^4.2.0",
-    "mocha": "^6.2.0",
-    "istanbul": "^0.4.5",
-    "standard": "^14.2.0",
-    "bfx-hf-strategy": "^1.0.0",
+    "bfx-api-node-plugin-wd": "^1.0.4",
     "bfx-api-node-rest": "^4.1.2",
     "bfx-hf-indicators": "^2.0.0",
-    "bfx-api-node-plugin-wd": "^1.0.4",
-    "jsdoc-to-markdown": "^5.0.1"
+    "bfx-hf-strategy": "git+https://github.com/bitfinexcom/bfx-hf-strategy.git#v1.2.0",
+    "chai": "^4.2.0",
+    "istanbul": "^0.4.5",
+    "jsdoc-to-markdown": "^5.0.1",
+    "mocha": "^6.2.0",
+    "standard": "^14.2.0"
   }
 }
