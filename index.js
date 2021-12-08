@@ -146,7 +146,7 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}, conn) =
 
   const processMessages = async () => {
     processing = true
-    
+
     while (!_isEmpty(messages)) {
       const [msg] = messages.splice(0, 1)
 
@@ -170,11 +170,11 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}, conn) =
     if (candles.length > 1) { // seeding happens at start via RESTv2
       return
     }
-    
+
     const [candle] = candles
     candle.symbol = symbol
     candle.tf = tf
-    
+
     _debouncedEnqueue('candle', candle)
   })
 
