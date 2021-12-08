@@ -34,8 +34,10 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
   const { symbol, tf, includeTrades, seedCandleCount = 5000 } = args
   const candleKey = `trade:${tf}:${symbol}`
   const messages = []
+
   let strategyState = strategy
   let lastCandle = null
+  let lastTrade = null
   let processing = false
 
   debug('seeding with last ~%d candles...', seedCandleCount)
@@ -105,9 +107,15 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
 
     switch (type) {
       case 'trade': {
+        if (lastTrade && lastTrade.id >= data.id) {
+          break
+        }
+
         data.symbol = symbol
         debug('recv trade: %j', data)
         strategyState = await onTrade(strategyState, data)
+        lastTrade = data
+        
         break
       }
 
