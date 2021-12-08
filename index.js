@@ -6,6 +6,7 @@ const { padCandles } = require('bfx-api-node-util')
 const { candleWidth } = require('bfx-hf-util')
 const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
+const _debounce = require('lodash/debounce')
 const PromiseThrottle = require('promise-throttle')
 
 const {
@@ -97,6 +98,8 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
     }
   }
 
+  const _debouncedEnqueue = _debounce(enqueMessage, 100)
+
   const processMessage = async (msg) => {
     const { type, data } = msg
 
@@ -129,7 +132,7 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
 
   const processMessages = async () => {
     processing = true
-
+    
     while (!_isEmpty(messages)) {
       const [msg] = messages.splice(0, 1)
 
@@ -153,12 +156,12 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
     if (candles.length > 1) { // seeding happens at start via RESTv2
       return
     }
-
+    
     const [candle] = candles
     candle.symbol = symbol
     candle.tf = tf
-
-    enqueMessage('candle', candle)
+    
+    _debouncedEnqueue('candle', candle)
   })
 
   wsManager.withSocket((socket) => {
