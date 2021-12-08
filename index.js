@@ -24,13 +24,15 @@ const pt = new PromiseThrottle({
  *
  * @param {Object} strategy - as created by define() from bfx-hf-strategy
  * @param {Object} wsManager - WSv2 pool instance from bfx-api-node-core
+ * @param {Object} rest - restv2 instance
  * @param {Object} args - execution parameters
  * @param {string} args.symbol - market to execute on
  * @param {string} args.tf - time frame to execute on
  * @param {boolean} args.includeTrades - if true, trade data is subscribed to and processed
  * @param {number} args.seedCandleCount - size of indicator candle seed window, before which trading is disabled
+ * @param {Object} conn - optional event emitter object to emit required events
  */
-const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
+const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}, conn) => {
   const { symbol, tf, includeTrades, seedCandleCount = 5000 } = args
   const candleKey = `trade:${tf}:${symbol}`
   const messages = []
@@ -95,7 +97,11 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
 
     if (!processing) {
       processMessages().catch((err) => {
-        debug('error processing: %s', err.stack)
+        debug('error processing: %s', err)
+
+        if (conn) {
+          conn.emit('error', err)
+        }
       })
     }
   }
@@ -115,7 +121,7 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
         debug('recv trade: %j', data)
         strategyState = await onTrade(strategyState, data)
         lastTrade = data
-        
+
         break
       }
 
