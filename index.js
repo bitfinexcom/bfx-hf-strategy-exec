@@ -6,6 +6,7 @@ const { padCandles } = require('bfx-api-node-util')
 const { candleWidth } = require('bfx-hf-util')
 const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
+const _debounce = require('lodash/debounce')
 const PromiseThrottle = require('promise-throttle')
 
 const {
@@ -23,18 +24,22 @@ const pt = new PromiseThrottle({
  *
  * @param {Object} strategy - as created by define() from bfx-hf-strategy
  * @param {Object} wsManager - WSv2 pool instance from bfx-api-node-core
+ * @param {Object} rest - restv2 instance
  * @param {Object} args - execution parameters
  * @param {string} args.symbol - market to execute on
  * @param {string} args.tf - time frame to execute on
  * @param {boolean} args.includeTrades - if true, trade data is subscribed to and processed
  * @param {number} args.seedCandleCount - size of indicator candle seed window, before which trading is disabled
+ * @param {Object} conn - optional event emitter object to emit required events
  */
-const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
+const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}, conn) => {
   const { symbol, tf, includeTrades, seedCandleCount = 5000 } = args
   const candleKey = `trade:${tf}:${symbol}`
   const messages = []
+
   let strategyState = strategy
   let lastCandle = null
+  let lastTrade = null
   let processing = false
 
   debug('seeding with last ~%d candles...', seedCandleCount)
@@ -92,19 +97,31 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
 
     if (!processing) {
       processMessages().catch((err) => {
-        debug('error processing: %s', err.stack)
+        debug('error processing: %s', err)
+
+        if (conn) {
+          conn.emit('error', err)
+        }
       })
     }
   }
+
+  const _debouncedEnqueue = _debounce(enqueMessage, 100)
 
   const processMessage = async (msg) => {
     const { type, data } = msg
 
     switch (type) {
       case 'trade': {
+        if (lastTrade && lastTrade.id >= data.id) {
+          break
+        }
+
         data.symbol = symbol
         debug('recv trade: %j', data)
         strategyState = await onTrade(strategyState, data)
+        lastTrade = data
+
         break
       }
 
@@ -158,7 +175,7 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}) => {
     candle.symbol = symbol
     candle.tf = tf
 
-    enqueMessage('candle', candle)
+    _debouncedEnqueue('candle', candle)
   })
 
   wsManager.withSocket((socket) => {
