@@ -1,138 +1,209 @@
 'use strict'
 
-const debug = require('debug')('bfx:hf:strategy-exec')
-const { subscribe } = require('bfx-api-node-core')
-const { padCandles } = require('bfx-api-node-util')
-const { candleWidth } = require('bfx-hf-util')
 const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
 const _debounce = require('lodash/debounce')
+const { candleWidth } = require('bfx-hf-util')
+const { subscribe } = require('bfx-api-node-core')
+const { padCandles } = require('bfx-api-node-util')
 const PromiseThrottle = require('promise-throttle')
+const debug = require('debug')('bfx:hf:strategy-exec')
 
 const {
   onSeedCandle, onCandle, onCandleUpdate, onTrade
 } = require('bfx-hf-strategy')
 
+const EventEmitter = require('events')
+
 const CANDLE_FETCH_LIMIT = 1000
+const DEBOUNCE_PERIOD_MS = 100
 const pt = new PromiseThrottle({
   requestsPerSecond: 10.0 / 60.0, // taken from docs
   promiseImplementation: Promise
 })
 
-/**
- * Execute a strategy on a live market
- *
- * @param {Object} strategy - as created by define() from bfx-hf-strategy
- * @param {Object} wsManager - WSv2 pool instance from bfx-api-node-core
- * @param {Object} rest - restv2 instance
- * @param {Object} args - execution parameters
- * @param {string} args.symbol - market to execute on
- * @param {string} args.tf - time frame to execute on
- * @param {boolean} args.includeTrades - if true, trade data is subscribed to and processed
- * @param {number} args.seedCandleCount - size of indicator candle seed window, before which trading is disabled
- * @param {Object} conn - optional event emitter object to emit required events
- */
-const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}, conn) => {
-  const { symbol, tf, includeTrades, seedCandleCount = 5000 } = args
-  const candleKey = `trade:${tf}:${symbol}`
-  const messages = []
+class LiveStrategyExecution extends EventEmitter {
+  /**
+   * @param {Object} args
+   * @param {Object} args.strategy - as created by define() from bfx-hf-strategy
+   * @param {Object} args.ws2Manager - WSv2 pool instance from bfx-api-node-core
+   * @param {Object} args.rest - restv2 instance
+   * @param {Object} args.strategyOpts - execution parameters
+   * @param {string} args.strategyOpts.symbol - market to execute on
+   * @param {string} args.strategyOpts.tf - time frame to execute on
+   * @param {boolean} args.strategyOpts.includeTrades - if true, trade data is subscribed to and processed
+   * @param {number} args.strategyOpts.seedCandleCount - size of indicator candle seed window, before which trading is disabled
+   */
+  constructor(args) {
+    super()
 
-  let strategyState = strategy
-  let lastCandle = null
-  let lastTrade = null
-  let processing = false
+    const { strategy, ws2Manager, rest, strategyOpts } = args
 
-  debug('seeding with last ~%d candles...', seedCandleCount)
+    this.strategyState = strategy || {}
+    this.ws2Manager = ws2Manager || {}
+    this.rest = rest || {}
+    this.strategyOpts = strategyOpts || {}
 
-  const cWidth = candleWidth(tf)
-  const now = Date.now()
-  const seedStart = now - (seedCandleCount * cWidth)
+    this.lastCandle = null
+    this.lastTrade = null
+    this.processing = false
+    this.messages = []
 
-  for (let i = 0; i < Math.ceil(seedCandleCount / CANDLE_FETCH_LIMIT); i += 1) {
-    let seededCandles = 0
-    let candle
+    this._debouncedEnqueue = _debounce(this._enqueueMessage.bind(this), DEBOUNCE_PERIOD_MS)
 
-    const start = seedStart + (i * 1000 * cWidth)
-    const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), now)
-
-    const candleResponse = await pt.add(
-      rest.candles.bind(rest, ({
-        symbol,
-        timeframe: tf,
-        query: {
-          limit: CANDLE_FETCH_LIMIT,
-          start,
-          end
-        }
-      }))
-    )
-
-    const candles = _reverse(padCandles(candleResponse, cWidth))
-
-    for (let i = 0; i < candles.length; i += 1) {
-      candle = candles[i]
-
-      if (lastCandle && lastCandle.mts >= candle.mts) {
-        continue
-      }
-
-      candle.tf = tf
-      candle.symbol = symbol
-
-      strategyState = await onSeedCandle(strategyState, candle)
-      lastCandle = candle
-      seededCandles += 1
-    }
-
-    debug(
-      'seeded with %d candles from %s - %s',
-      seededCandles, new Date(start).toLocaleString(), new Date(end).toLocaleString()
-    )
+    this._registerManagerEventListeners()
   }
 
-  const enqueMessage = (type, data) => {
+  /**
+   * @private
+   */
+  _registerManagerEventListeners() {
+    if (_isEmpty(this.ws2Manager)) {
+      throw new Error('WS2 manager not available')
+    }
+    
+    const { includeTrades, symbol, tf } = this.strategyOpts
+    const candleKey = `trade:${tf}:${symbol}`
+    
+    if (includeTrades) {
+      this.ws2Manager.onWS('trades', { symbol }, async (trades) => {
+        if (trades.length > 1) { // we don't pass snapshots through
+          return
+        }
+  
+        this._enqueueMessage('trade', trades)
+      })
+    }
+  
+    this.ws2Manager.onWS('candles', { key: candleKey }, async (candles) => {
+      if (candles.length > 1) { // seeding happens at start via RESTv2
+        return
+      }
+  
+      const [candle] = candles
+      candle.symbol = symbol
+      candle.tf = tf
+  
+      this._debouncedEnqueue('candle', candle)
+    })
+  }
+  
+  /**
+   * @private
+   */
+  async _seedCandles() {
+    const { seedCandleCount, tf, symbol } = this.strategyOpts
+    
+    debug('seeding with last ~%d candles...', seedCandleCount)
+
+    const cWidth = candleWidth(tf)
+    const now = Date.now()
+    const seedStart = now - (seedCandleCount * cWidth)
+
+    for (let i = 0; i < Math.ceil(seedCandleCount / CANDLE_FETCH_LIMIT); i += 1) {
+      let seededCandles = 0
+      let candle
+  
+      const start = seedStart + (i * 1000 * cWidth)
+      const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), now)
+  
+      const candleResponse = await pt.add(
+        this.rest.candles.bind(this.rest, ({
+          symbol,
+          timeframe: tf,
+          query: {
+            limit: CANDLE_FETCH_LIMIT,
+            start,
+            end
+          }
+        }))
+      )
+  
+      const candles = _reverse(padCandles(candleResponse, cWidth))
+  
+      for (let i = 0; i < candles.length; i += 1) {
+        candle = candles[i]
+  
+        if (this.lastCandle && this.lastCandle.mts >= candle.mts) {
+          continue
+        }
+  
+        candle.tf = tf
+        candle.symbol = symbol
+  
+        this.strategyState = await onSeedCandle(this.strategyState, candle)
+        this.lastCandle = candle
+        seededCandles += 1
+      }
+  
+      debug(
+        'seeded with %d candles from %s - %s',
+        seededCandles, new Date(start).toLocaleString(), new Date(end).toLocaleString()
+      )
+    }
+  }
+
+  /**
+   * @private
+   */
+  _enqueueMessage(type, data) {
     debug('enqueue %s', type)
 
-    messages.push({ type, data })
+    this.messages.push({ type, data })
 
-    if (!processing) {
-      processMessages().catch((err) => {
+    if (!this.processing) {
+      this._processMessages().catch((err) => {
         debug('error processing: %s', err)
 
-        if (conn) {
-          conn.emit('error', err)
-        }
+        this.emit('error', err)
       })
     }
   }
 
-  const _debouncedEnqueue = _debounce(enqueMessage, 100)
+  /**
+   * @private
+   */
+  async _processMessages() {
+    this.processing = true
 
-  const processMessage = async (msg) => {
+    while (!_isEmpty(this.messages)) {
+      const [msg] = this.messages.splice(0, 1)
+
+      await this._processMessage(msg)
+    }
+
+    this.processing = false
+  }
+
+  /**
+   * @private
+   */
+  async _processMessage(msg) {
     const { type, data } = msg
 
     switch (type) {
       case 'trade': {
-        if (lastTrade && lastTrade.id >= data.id) {
+        if (this.lastTrade && this.lastTrade.id >= data.id) {
           break
         }
 
+        const { symbol } = this.strategyState
         data.symbol = symbol
         debug('recv trade: %j', data)
-        strategyState = await onTrade(strategyState, data)
-        lastTrade = data
+        this.strategyState = await onTrade(this.strategyState, data)
+        this.lastTrade = data
 
         break
       }
 
       case 'candle': {
-        if (lastCandle === null || lastCandle.mts < data.mts) {
+        if (this.lastCandle === null || this.lastCandle.mts < data.mts) {
           debug('recv candle %j', data)
-          strategyState = await onCandle(strategyState, data)
-          lastCandle = data
-        } else if (lastCandle.mts === data.mts) {
+          this.strategyState = await onCandle(this.strategyState, data)
+          this.lastCandle = data
+        } else if (this.lastCandle.mts === data.mts) {
           debug('updated candle %j', data)
-          strategyState = await onCandleUpdate(strategyState, data)
+          this.strategyState = await onCandleUpdate(this.strategyState, data)
         }
 
         break
@@ -144,49 +215,32 @@ const exec = async (strategy = {}, wsManager = {}, rest = {}, args = {}, conn) =
     }
   }
 
-  const processMessages = async () => {
-    processing = true
+  /**
+   * @private
+   */
+  _subscribeCandleAndTradeEvents() {
+    const { includeTrades, symbol, tf } = this.strategyOpts
+    const candleKey = `trade:${tf}:${symbol}`
 
-    while (!_isEmpty(messages)) {
-      const [msg] = messages.splice(0, 1)
-
-      await processMessage(msg)
-    }
-
-    processing = false
-  }
-
-  if (includeTrades) {
-    wsManager.onWS('trades', { symbol }, async (trades) => {
-      if (trades.length > 1) { // we don't pass snapshots through
-        return
+    this.ws2Manager.withSocket((socket) => {
+      let nextSocket = subscribe(socket, 'candles', { key: candleKey })
+  
+      if (includeTrades) {
+        nextSocket = subscribe(nextSocket, 'trades', { symbol })
       }
-
-      enqueMessage('trade', trades)
+  
+      return nextSocket
     })
   }
 
-  wsManager.onWS('candles', { key: candleKey }, async (candles) => {
-    if (candles.length > 1) { // seeding happens at start via RESTv2
-      return
-    }
+  /**
+   * @public
+   */
+  async execute() {
+    await this._seedCandles()
 
-    const [candle] = candles
-    candle.symbol = symbol
-    candle.tf = tf
-
-    _debouncedEnqueue('candle', candle)
-  })
-
-  wsManager.withSocket((socket) => {
-    let nextSocket = subscribe(socket, 'candles', { key: candleKey })
-
-    if (includeTrades) {
-      nextSocket = subscribe(nextSocket, 'trades', { symbol })
-    }
-
-    return nextSocket
-  })
+    this._subscribeCandleAndTradeEvents()
+  }
 }
 
-module.exports = exec
+module.exports = LiveStrategyExecution
