@@ -58,6 +58,12 @@ const run = async () => {
     })
     
     await liveExecutor.execute()
+
+    process.on('SIGINT', async () => {
+      await liveExecutor.stopExecution() // close open positions if any
+      console.log(liveExecutor.generateResults()) // fetch strategy execution results
+      process.exit(0)
+    })
   })
 
   debug('opening socket...')
