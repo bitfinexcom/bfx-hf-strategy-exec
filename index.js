@@ -8,6 +8,8 @@ const _isNil = require('lodash/isNil')
 const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
 const _debounce = require('lodash/debounce')
+const _isFunction = require('lodash/isFunction')
+
 const { candleWidth } = require('bfx-hf-util')
 const { subscribe } = require('bfx-api-node-core')
 const { padCandles } = require('bfx-api-node-util')
@@ -15,7 +17,7 @@ const PromiseThrottle = require('promise-throttle')
 const debug = require('debug')('bfx:hf:strategy-exec')
 
 const {
-  onSeedCandle, onCandle, onCandleUpdate, onTrade
+  onSeedCandle, onCandle, onCandleUpdate, onTrade, closeOpenPositions
 } = require('bfx-hf-strategy')
 
 const EventEmitter = require('events')
@@ -245,6 +247,21 @@ class LiveStrategyExecution extends EventEmitter {
     await this._seedCandles()
 
     this._subscribeCandleAndTradeEvents()
+  }
+
+  /**
+   * @public
+   */
+  async stopExecution() {
+    const { onEnd } = this.strategyState
+
+    if (_isFunction(onEnd)) {
+      this.strategyState = await onEnd(this.strategyState)
+    }
+
+    this.strategyState = await closeOpenPositions(this.strategyState)
+
+    this._debouncedEnqueue.cancel()
   }
 
   /**
