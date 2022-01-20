@@ -259,7 +259,9 @@ class LiveStrategyExecution extends EventEmitter {
       this.strategyState = await onEnd(this.strategyState)
     }
 
-    this.strategyState = await closeOpenPositions(this.strategyState)
+    if (this.strategyState.margin) {
+      this.strategyState = await closeOpenPositions(this.strategyState)
+    }
 
     this._debouncedEnqueue.cancel()
   }
