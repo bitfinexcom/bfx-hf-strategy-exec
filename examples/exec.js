@@ -56,7 +56,7 @@ const run = async () => {
       // handle errors
       console.error(err)
     })
-    
+
     await liveExecutor.execute()
 
     process.on('SIGINT', async () => {

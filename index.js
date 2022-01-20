@@ -41,7 +41,7 @@ class LiveStrategyExecution extends EventEmitter {
    * @param {boolean} args.strategyOpts.includeTrades - if true, trade data is subscribed to and processed
    * @param {number} args.strategyOpts.seedCandleCount - size of indicator candle seed window, before which trading is disabled
    */
-  constructor(args) {
+  constructor (args) {
     super()
 
     const { strategy, ws2Manager, rest, strategyOpts } = args
@@ -64,43 +64,43 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @private
    */
-  _registerManagerEventListeners() {
+  _registerManagerEventListeners () {
     if (_isEmpty(this.ws2Manager)) {
       throw new Error('WS2 manager not available')
     }
-    
+
     const { includeTrades, symbol, tf } = this.strategyOpts
     const candleKey = `trade:${tf}:${symbol}`
-    
+
     if (includeTrades) {
       this.ws2Manager.onWS('trades', { symbol }, async (trades) => {
         if (trades.length > 1) { // we don't pass snapshots through
           return
         }
-  
+
         this._enqueueMessage('trade', trades)
       })
     }
-  
+
     this.ws2Manager.onWS('candles', { key: candleKey }, async (candles) => {
       if (candles.length > 1) { // seeding happens at start via RESTv2
         return
       }
-  
+
       const [candle] = candles
       candle.symbol = symbol
       candle.tf = tf
-  
+
       this._debouncedEnqueue('candle', candle)
     })
   }
-  
+
   /**
    * @private
    */
-  async _seedCandles() {
+  async _seedCandles () {
     const { seedCandleCount, tf, symbol } = this.strategyOpts
-    
+
     debug('seeding with last ~%d candles...', seedCandleCount)
 
     const cWidth = candleWidth(tf)
@@ -110,10 +110,10 @@ class LiveStrategyExecution extends EventEmitter {
     for (let i = 0; i < Math.ceil(seedCandleCount / CANDLE_FETCH_LIMIT); i += 1) {
       let seededCandles = 0
       let candle
-  
+
       const start = seedStart + (i * 1000 * cWidth)
       const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), now)
-  
+
       const candleResponse = await pt.add(
         this.rest.candles.bind(this.rest, ({
           symbol,
@@ -125,24 +125,24 @@ class LiveStrategyExecution extends EventEmitter {
           }
         }))
       )
-  
+
       const candles = _reverse(padCandles(candleResponse, cWidth))
-  
+
       for (let i = 0; i < candles.length; i += 1) {
         candle = candles[i]
-  
+
         if (this.lastCandle && this.lastCandle.mts >= candle.mts) {
           continue
         }
-  
+
         candle.tf = tf
         candle.symbol = symbol
-  
+
         this.strategyState = await onSeedCandle(this.strategyState, candle)
         this.lastCandle = candle
         seededCandles += 1
       }
-  
+
       debug(
         'seeded with %d candles from %s - %s',
         seededCandles, new Date(start).toLocaleString(), new Date(end).toLocaleString()
@@ -153,7 +153,7 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @private
    */
-  _enqueueMessage(type, data) {
+  _enqueueMessage (type, data) {
     debug('enqueue %s', type)
 
     this.messages.push({ type, data })
@@ -170,7 +170,7 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @private
    */
-  async _processMessages() {
+  async _processMessages () {
     this.processing = true
 
     while (!_isEmpty(this.messages)) {
@@ -185,7 +185,7 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @private
    */
-  async _processMessage(msg) {
+  async _processMessage (msg) {
     const { type, data } = msg
 
     switch (type) {
@@ -225,17 +225,17 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @private
    */
-  _subscribeCandleAndTradeEvents() {
+  _subscribeCandleAndTradeEvents () {
     const { includeTrades, symbol, tf } = this.strategyOpts
     const candleKey = `trade:${tf}:${symbol}`
 
     this.ws2Manager.withSocket((socket) => {
       let nextSocket = subscribe(socket, 'candles', { key: candleKey })
-  
+
       if (includeTrades) {
         nextSocket = subscribe(nextSocket, 'trades', { symbol })
       }
-  
+
       return nextSocket
     })
   }
@@ -243,7 +243,7 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @public
    */
-  async execute() {
+  async execute () {
     await this._seedCandles()
 
     this._subscribeCandleAndTradeEvents()
@@ -252,7 +252,7 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @public
    */
-  async stopExecution() {
+  async stopExecution () {
     const { onEnd } = this.strategyState
 
     if (_isFunction(onEnd)) {
@@ -270,16 +270,16 @@ class LiveStrategyExecution extends EventEmitter {
    * @public
    * @returns {object}
    */
-  generateResults() {
+  generateResults () {
     const { symbol, tf } = this.strategyOpts
     const { trades: strategyTrades = [], marketData = {} } = this.strategyState
-    
+
     const candles = marketData[`candles-${symbol}-${tf}`] || []
     const trades = marketData[`trades-${symbol}`] || []
-    
+
     const nCandles = candles.length
     const nTrades = trades.length
-    
+
     const nStrategyTrades = strategyTrades.length
     const pls = strategyTrades.map(t => t.pl)
     const gains = pls.filter(pl => pl > 0)
@@ -296,7 +296,7 @@ class LiveStrategyExecution extends EventEmitter {
     const accumulatedPLs = strategyTrades.map(x => x.pl)
     const stdDeviation = std(accumulatedPLs.length > 0 ? accumulatedPLs : [0])
     const avgPL = _sum(accumulatedPLs) / accumulatedPLs.length
-  
+
     return {
       vol,
       fees,
@@ -312,14 +312,14 @@ class LiveStrategyExecution extends EventEmitter {
       nOpens,
       nGains: gains.length,
       nLosses: losses.length,
-      
+
       stdDeviation,
       pl,
       pf: isNaN(pf) ? 0 : pf,
       avgPL: isNaN(avgPL) ? 0 : avgPL,
       minPL: _isNil(minPL) ? 0 : minPL,
       maxPL: _isNil(maxPL) ? 0 : maxPL,
-      
+
       strategy: {
         trades: strategyTrades.map(t => ({
           ...t,
