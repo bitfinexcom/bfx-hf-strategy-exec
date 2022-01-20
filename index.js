@@ -1,5 +1,10 @@
 'use strict'
 
+const { std } = require('mathjs')
+const _sum = require('lodash/sum')
+const _min = require('lodash/min')
+const _max = require('lodash/max')
+const _isNil = require('lodash/isNil')
 const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
 const _debounce = require('lodash/debounce')
@@ -24,11 +29,11 @@ const pt = new PromiseThrottle({
 
 class LiveStrategyExecution extends EventEmitter {
   /**
-   * @param {Object} args
-   * @param {Object} args.strategy - as created by define() from bfx-hf-strategy
-   * @param {Object} args.ws2Manager - WSv2 pool instance from bfx-api-node-core
-   * @param {Object} args.rest - restv2 instance
-   * @param {Object} args.strategyOpts - execution parameters
+   * @param {object} args
+   * @param {object} args.strategy - as created by define() from bfx-hf-strategy
+   * @param {object} args.ws2Manager - WSv2 pool instance from bfx-api-node-core
+   * @param {object} args.rest - restv2 instance
+   * @param {object} args.strategyOpts - execution parameters
    * @param {string} args.strategyOpts.symbol - market to execute on
    * @param {string} args.strategyOpts.tf - time frame to execute on
    * @param {boolean} args.strategyOpts.includeTrades - if true, trade data is subscribed to and processed
@@ -240,6 +245,69 @@ class LiveStrategyExecution extends EventEmitter {
     await this._seedCandles()
 
     this._subscribeCandleAndTradeEvents()
+  }
+
+  /**
+   * @public
+   * @returns {object}
+   */
+  generateResults() {
+    const { symbol, tf } = this.strategyOpts
+    const { trades: strategyTrades = [], marketData = {} } = this.strategyState
+    
+    const candles = marketData[`candles-${symbol}-${tf}`] || []
+    const trades = marketData[`trades-${symbol}`] || []
+    
+    const nCandles = candles.length
+    const nTrades = trades.length
+    
+    const nStrategyTrades = strategyTrades.length
+    const pls = strategyTrades.map(t => t.pl)
+    const gains = pls.filter(pl => pl > 0)
+    const losses = pls.filter(pl => pl < 0)
+    const nOpens = pls.filter(pl => pl === 0).length
+    const vol = _sum(strategyTrades.map(t => Math.abs(t.price * t.amount)))
+    const fees = _sum(strategyTrades.map(t => t.fee))
+    const totalGain = _sum(gains)
+    const totalLoss = _sum(losses)
+    const pf = totalGain / Math.abs(totalLoss)
+    const pl = _sum(pls)
+    const minPL = _min(pls)
+    const maxPL = _max(pls)
+    const accumulatedPLs = strategyTrades.map(x => x.pl)
+    const stdDeviation = std(accumulatedPLs.length > 0 ? accumulatedPLs : [0])
+    const avgPL = _sum(accumulatedPLs) / accumulatedPLs.length
+  
+    return {
+      vol,
+      fees,
+      candles,
+      trades: trades.map(t => ({
+        ...t,
+        date: new Date(t.mts)
+      })),
+
+      nTrades,
+      nCandles,
+      nStrategyTrades,
+      nOpens,
+      nGains: gains.length,
+      nLosses: losses.length,
+      
+      stdDeviation,
+      pl,
+      pf: isNaN(pf) ? 0 : pf,
+      avgPL: isNaN(avgPL) ? 0 : avgPL,
+      minPL: _isNil(minPL) ? 0 : minPL,
+      maxPL: _isNil(maxPL) ? 0 : maxPL,
+      
+      strategy: {
+        trades: strategyTrades.map(t => ({
+          ...t,
+          date: new Date(t.mts)
+        }))
+      }
+    }
   }
 }
 
