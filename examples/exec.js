@@ -28,8 +28,8 @@ const ws2Manager = new Manager({
   })]
 })
 
-const run = async () => {
-  const strategy = await EMACrossStrategy({
+const run = () => {
+  const strategy = EMACrossStrategy({
     symbol: SYMBOLS.EOS_USD,
     tf: TIME_FRAMES.ONE_DAY,
     amount: 1,
