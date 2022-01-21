@@ -185,34 +185,46 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @private
    */
+  async _processTradeData (data) {
+    if (this.lastTrade && this.lastTrade.id >= data.id) {
+      return
+    }
+
+    const { symbol } = this.strategyState
+    data.symbol = symbol
+    debug('recv trade: %j', data)
+    this.strategyState = await onTrade(this.strategyState, data)
+    this.lastTrade = data
+  }
+
+  /**
+   * @private
+   */
+  async _processCandleData (data) {
+    if (this.lastCandle === null || this.lastCandle.mts < data.mts) {
+      debug('recv candle %j', data)
+      this.strategyState = await onCandle(this.strategyState, data)
+      this.lastCandle = data
+    } else if (this.lastCandle.mts === data.mts) {
+      debug('updated candle %j', data)
+      this.strategyState = await onCandleUpdate(this.strategyState, data)
+    }
+  }
+
+  /**
+   * @private
+   */
   async _processMessage (msg) {
     const { type, data } = msg
 
     switch (type) {
       case 'trade': {
-        if (this.lastTrade && this.lastTrade.id >= data.id) {
-          break
-        }
-
-        const { symbol } = this.strategyState
-        data.symbol = symbol
-        debug('recv trade: %j', data)
-        this.strategyState = await onTrade(this.strategyState, data)
-        this.lastTrade = data
-
+        await this._processTradeData(data)
         break
       }
 
       case 'candle': {
-        if (this.lastCandle === null || this.lastCandle.mts < data.mts) {
-          debug('recv candle %j', data)
-          this.strategyState = await onCandle(this.strategyState, data)
-          this.lastCandle = data
-        } else if (this.lastCandle.mts === data.mts) {
-          debug('updated candle %j', data)
-          this.strategyState = await onCandleUpdate(this.strategyState, data)
-        }
-
+        await this._processCandleData(data)
         break
       }
 
