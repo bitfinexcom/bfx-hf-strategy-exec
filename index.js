@@ -174,7 +174,7 @@ class LiveStrategyExecution extends EventEmitter {
     this.processing = true
 
     while (!_isEmpty(this.messages)) {
-      const [msg] = this.messages.splice(0, 1)
+      const msg = this.messages.shift()
 
       await this._processMessage(msg)
     }
