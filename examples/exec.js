@@ -9,7 +9,7 @@ const { Manager } = require('bfx-api-node-core')
 const WDPlugin = require('bfx-api-node-plugin-wd')
 
 const EMACrossStrategy = require('./ema_cross_strategy')
-const exec = require('../')
+const LiveStrategyExecution = require('../')
 
 const API_KEY = '...'
 const API_SECRET = '...'
@@ -28,8 +28,8 @@ const ws2Manager = new Manager({
   })]
 })
 
-const run = async () => {
-  const strategy = await EMACrossStrategy({
+const run = () => {
+  const strategy = EMACrossStrategy({
     symbol: SYMBOLS.EOS_USD,
     tf: TIME_FRAMES.ONE_DAY,
     amount: 1,
@@ -43,11 +43,26 @@ const run = async () => {
 
     strategy.ws = ws
 
-    await exec(strategy, ws2Manager, rest, {
+    const strategyOpts = {
       symbol: SYMBOLS.EOS_USD,
       tf: TIME_FRAMES.ONE_DAY,
       includeTrades: true,
       seedCandleCount: 5000
+    }
+
+    const liveExecutor = new LiveStrategyExecution({ strategy, ws2Manager, rest, strategyOpts })
+
+    liveExecutor.on('error', (err) => {
+      // handle errors
+      console.error(err)
+    })
+
+    await liveExecutor.execute()
+
+    process.on('SIGINT', async () => {
+      await liveExecutor.stopExecution() // close open positions if any
+      console.log(liveExecutor.generateResults()) // fetch strategy execution results
+      process.exit(0)
     })
   })
 

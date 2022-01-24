@@ -19,22 +19,37 @@ npm i --save bfx-hf-strategy-exec
 ### Quickstart & Example
 ```js
 const { SYMBOLS, TIME_FRAMES } = require('bfx-hf-util')
+const { RESTv2 } = require('bfx-api-node-rest')
 const { Manager } = require('bfx-api-node-core')
-const exec = require('bfx-hf-stratey-exec')
+const LiveStrategyExecution = require('bfx-hf-stratey-exec')
 const CustomTradingStrategy = require('./somewhere')
 
 const ws2Manager = new Manager({ /*...*/ }) // see bfx-api-node-core docs
 const strategy = await CustomTradingStrategy({ /* optionally pass args */ })
 
+const rest = new RESTv2({ 
+  url: 'https://api.bitfinex.com', 
+  transform: true 
+})
+
 ws2Manager.onceWS('event:auth:success', {}, async (authEvent, ws) => {
   strategy.ws = ws
 
-  await exec(strategy, ws2Manager, {
+  const strategyOpts = {
     symbol: SYMBOLS.EOS_USD, // data stream symbol
     tf: TIME_FRAMES.ONE_DAY, // candle data stream time frame
     includeTrades: true,
     seedCandleCount: 5000    // indicator candle seed window
+  }
+
+  const liveExecutor = new LiveStrategyExecution({ strategy, ws2Manager, rest, strategyOpts })
+
+  liveExecutor.on('error', (err) => {
+    // handle errors
+    console.error(err)
   })
+  
+  await liveExecutor.execute()
 })
 
 ws2Manager.openWS()
