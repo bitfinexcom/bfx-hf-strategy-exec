@@ -17,7 +17,7 @@ const PromiseThrottle = require('promise-throttle')
 const debug = require('debug')('bfx:hf:strategy-exec')
 
 const {
-  onSeedCandle, onCandle, onCandleUpdate, onTrade, closeOpenPositions
+  onSeedCandle, onCandle, onTrade, closeOpenPositions
 } = require('bfx-hf-strategy')
 
 const EventEmitter = require('events')
@@ -201,13 +201,13 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   async _processCandleData (data) {
-    if (this.lastCandle === null || this.lastCandle.mts < data.mts) {
-      debug('recv candle %j', data)
-      this.strategyState = await onCandle(this.strategyState, data)
+    if (this.lastCandle === null || this.lastCandle.mts === data.mts) {
+      // in case of first candle received or candle update event
       this.lastCandle = data
-    } else if (this.lastCandle.mts === data.mts) {
-      debug('updated candle %j', data)
-      this.strategyState = await onCandleUpdate(this.strategyState, data)
+    } else if (this.lastCandle.mts < data.mts) {
+      debug('recv candle %j', data)
+      this.strategyState = await onCandle(this.strategyState, this.lastCandle) // send closed candle data
+      this.lastCandle = data // save new candle data
     }
   }
 
