@@ -7,7 +7,6 @@ const _max = require('lodash/max')
 const _isNil = require('lodash/isNil')
 const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
-const _debounce = require('lodash/debounce')
 const _isFunction = require('lodash/isFunction')
 
 const { candleWidth } = require('bfx-hf-util')
@@ -23,7 +22,6 @@ const {
 const EventEmitter = require('events')
 
 const CANDLE_FETCH_LIMIT = 1000
-const DEBOUNCE_PERIOD_MS = 100
 const pt = new PromiseThrottle({
   requestsPerSecond: 10.0 / 60.0, // taken from docs
   promiseImplementation: Promise
@@ -55,8 +53,6 @@ class LiveStrategyExecution extends EventEmitter {
     this.lastTrade = null
     this.processing = false
     this.messages = []
-
-    this._debouncedEnqueue = _debounce(this._enqueueMessage.bind(this), DEBOUNCE_PERIOD_MS)
 
     this._registerManagerEventListeners()
   }
@@ -91,7 +87,7 @@ class LiveStrategyExecution extends EventEmitter {
       candle.symbol = symbol
       candle.tf = tf
 
-      this._debouncedEnqueue('candle', candle)
+      this._enqueueMessage('candle', candle)
     })
   }
 
@@ -274,8 +270,6 @@ class LiveStrategyExecution extends EventEmitter {
     if (this.strategyState.margin) {
       this.strategyState = await closeOpenPositions(this.strategyState)
     }
-
-    this._debouncedEnqueue.cancel()
   }
 
   /**
