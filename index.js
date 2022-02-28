@@ -150,8 +150,6 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   _enqueueMessage (type, data) {
-    debug('enqueue %s', type)
-
     this.messages.push({ type, data })
 
     if (!this.processing) {
@@ -202,6 +200,7 @@ class LiveStrategyExecution extends EventEmitter {
       this.lastCandle = data
     } else if (this.lastCandle.mts < data.mts) {
       debug('recv candle %j', data)
+      debug('closed candle %j', this.lastCandle)
       this.strategyState = await onCandle(this.strategyState, this.lastCandle) // send closed candle data
       this.lastCandle = data // save new candle data
     }
