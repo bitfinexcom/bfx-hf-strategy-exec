@@ -7,7 +7,6 @@ const _max = require('lodash/max')
 const _isNil = require('lodash/isNil')
 const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
-const _debounce = require('lodash/debounce')
 const _isFunction = require('lodash/isFunction')
 
 const { candleWidth } = require('bfx-hf-util')
@@ -17,13 +16,12 @@ const PromiseThrottle = require('promise-throttle')
 const debug = require('debug')('bfx:hf:strategy-exec')
 
 const {
-  onSeedCandle, onCandle, onCandleUpdate, onTrade, closeOpenPositions
+  onSeedCandle, onCandle, onTrade, closeOpenPositions
 } = require('bfx-hf-strategy')
 
 const EventEmitter = require('events')
 
 const CANDLE_FETCH_LIMIT = 1000
-const DEBOUNCE_PERIOD_MS = 100
 const pt = new PromiseThrottle({
   requestsPerSecond: 10.0 / 60.0, // taken from docs
   promiseImplementation: Promise
@@ -55,8 +53,6 @@ class LiveStrategyExecution extends EventEmitter {
     this.lastTrade = null
     this.processing = false
     this.messages = []
-
-    this._debouncedEnqueue = _debounce(this._enqueueMessage.bind(this), DEBOUNCE_PERIOD_MS)
 
     this._registerManagerEventListeners()
   }
@@ -91,7 +87,7 @@ class LiveStrategyExecution extends EventEmitter {
       candle.symbol = symbol
       candle.tf = tf
 
-      this._debouncedEnqueue('candle', candle)
+      this._enqueueMessage('candle', candle)
     })
   }
 
@@ -154,8 +150,6 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   _enqueueMessage (type, data) {
-    debug('enqueue %s', type)
-
     this.messages.push({ type, data })
 
     if (!this.processing) {
@@ -201,13 +195,14 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   async _processCandleData (data) {
-    if (this.lastCandle === null || this.lastCandle.mts < data.mts) {
-      debug('recv candle %j', data)
-      this.strategyState = await onCandle(this.strategyState, data)
+    if (this.lastCandle === null || this.lastCandle.mts === data.mts) {
+      // in case of first candle received or candle update event
       this.lastCandle = data
-    } else if (this.lastCandle.mts === data.mts) {
-      debug('updated candle %j', data)
-      this.strategyState = await onCandleUpdate(this.strategyState, data)
+    } else if (this.lastCandle.mts < data.mts) {
+      debug('recv candle %j', data)
+      debug('closed candle %j', this.lastCandle)
+      this.strategyState = await onCandle(this.strategyState, this.lastCandle) // send closed candle data
+      this.lastCandle = data // save new candle data
     }
   }
 
@@ -274,8 +269,6 @@ class LiveStrategyExecution extends EventEmitter {
     if (this.strategyState.margin) {
       this.strategyState = await closeOpenPositions(this.strategyState)
     }
-
-    this._debouncedEnqueue.cancel()
   }
 
   /**
