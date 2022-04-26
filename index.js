@@ -52,6 +52,7 @@ class LiveStrategyExecution extends EventEmitter {
     this.lastCandle = null
     this.lastTrade = null
     this.processing = false
+    this.stopped = false
     this.messages = []
 
     this._registerManagerEventListeners()
@@ -150,6 +151,11 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   _enqueueMessage (type, data) {
+    debug('typppeeee %s, %s', type, this.stopped)
+    if (this.stopped) {
+      return
+    }
+
     this.messages.push({ type, data })
 
     if (!this.processing) {
@@ -269,6 +275,8 @@ class LiveStrategyExecution extends EventEmitter {
     if (this.strategyState.margin) {
       this.strategyState = await closeOpenPositions(this.strategyState)
     }
+
+    this.stopped = true
   }
 
   /**
