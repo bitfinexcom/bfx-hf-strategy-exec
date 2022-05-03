@@ -298,7 +298,8 @@ class LiveStrategyExecution extends EventEmitter {
       this.strategyState = await onEnd(this.strategyState)
     }
 
-    if (this.strategyState.margin) {
+    const openPosition = getPosition(this.strategyState)
+    if (openPosition) {
       this.strategyState = await closeOpenPositions(this.strategyState)
     }
 
