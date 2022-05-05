@@ -192,15 +192,13 @@ class LiveStrategyExecution extends EventEmitter {
     const { candlePrice } = this.strategyState
     const price = type === 'candle' ? data[candlePrice] : data.price
 
-    let hasOpenPosition = false
     const openPosition = getPosition(this.strategyState, symbol)
     if (openPosition) {
-      hasOpenPosition = true
       openPosition.pl = positionPl(this.strategyState, symbol, price)
       this.emit('opened_position_data', openPosition)
     }
 
-    this.emit('rt_execution_results', this.generateResults(hasOpenPosition ? openPosition : null))
+    this.emit('rt_execution_results', this.generateResults(openPosition))
   }
 
   /**
