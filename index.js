@@ -315,12 +315,9 @@ class LiveStrategyExecution extends EventEmitter {
     const { trades: strategyTrades = [], marketData = {} } = this.strategyState
 
     if (_isPlainObject(openPosition)) {
-      const openOrderIndex = strategyTrades.findIndex(st => st.position_id === openPosition.id)
-      if (openOrderIndex !== -1) {
-        strategyTrades[openOrderIndex] = {
-          ...strategyTrades[openOrderIndex],
-          pl: openPosition.pl
-        }
+      const openOrder = strategyTrades.find(st => st.position_id === openPosition.id)
+      if (openOrder) {
+        openOrder.pl = openPosition.pl
       }
     }
 
