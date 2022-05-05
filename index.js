@@ -157,7 +157,6 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   _enqueueMessage (type, data) {
-    debug('typppeeee %s, %s', type, this.stopped)
     if (this.stopped) {
       return
     }
