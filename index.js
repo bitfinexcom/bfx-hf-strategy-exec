@@ -8,6 +8,7 @@ const _isNil = require('lodash/isNil')
 const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
 const _isFunction = require('lodash/isFunction')
+const _isPlainObject = require('lodash/isPlainObject')
 
 const { candleWidth } = require('bfx-hf-util')
 const { subscribe } = require('bfx-api-node-core')
@@ -16,7 +17,8 @@ const PromiseThrottle = require('promise-throttle')
 const debug = require('debug')('bfx:hf:strategy-exec')
 
 const {
-  onSeedCandle, onCandle, onTrade, closeOpenPositions
+  onSeedCandle, onCandle, onTrade, closeOpenPositions,
+  getPosition, positionPl
 } = require('bfx-hf-strategy')
 
 const EventEmitter = require('events')
@@ -44,7 +46,11 @@ class LiveStrategyExecution extends EventEmitter {
 
     const { strategy, ws2Manager, rest, strategyOpts } = args
 
-    this.strategyState = strategy || {}
+    this.strategyState = {
+      ...(strategy || {}),
+      emit: this.emit.bind(this)
+    }
+
     this.ws2Manager = ws2Manager || {}
     this.rest = rest || {}
     this.strategyOpts = strategyOpts || {}
@@ -52,6 +58,7 @@ class LiveStrategyExecution extends EventEmitter {
     this.lastCandle = null
     this.lastTrade = null
     this.processing = false
+    this.stopped = false
     this.messages = []
 
     this._registerManagerEventListeners()
@@ -150,6 +157,10 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   _enqueueMessage (type, data) {
+    if (this.stopped) {
+      return
+    }
+
     this.messages.push({ type, data })
 
     if (!this.processing) {
@@ -176,6 +187,20 @@ class LiveStrategyExecution extends EventEmitter {
     this.processing = false
   }
 
+  _emitStrategyExecutionResults (type = 'candle', data) {
+    const { symbol } = this.strategyOpts
+    const { candlePrice } = this.strategyState
+    const price = type === 'candle' ? data[candlePrice] : data.price
+
+    const openPosition = getPosition(this.strategyState, symbol)
+    if (openPosition) {
+      openPosition.pl = positionPl(this.strategyState, symbol, price)
+      this.emit('opened_position_data', openPosition)
+    }
+
+    this.emit('rt_execution_results', this.generateResults(openPosition))
+  }
+
   /**
    * @private
    */
@@ -189,6 +214,8 @@ class LiveStrategyExecution extends EventEmitter {
     debug('recv trade: %j', data)
     this.strategyState = await onTrade(this.strategyState, data)
     this.lastTrade = data
+
+    this._emitStrategyExecutionResults('trade', data)
   }
 
   /**
@@ -198,11 +225,13 @@ class LiveStrategyExecution extends EventEmitter {
     if (this.lastCandle === null || this.lastCandle.mts === data.mts) {
       // in case of first candle received or candle update event
       this.lastCandle = data
+      this._emitStrategyExecutionResults('candle', data)
     } else if (this.lastCandle.mts < data.mts) {
       debug('recv candle %j', data)
       debug('closed candle %j', this.lastCandle)
       this.strategyState = await onCandle(this.strategyState, this.lastCandle) // send closed candle data
       this.lastCandle = data // save new candle data
+      this._emitStrategyExecutionResults('candle', data)
     }
   }
 
@@ -266,18 +295,28 @@ class LiveStrategyExecution extends EventEmitter {
       this.strategyState = await onEnd(this.strategyState)
     }
 
-    if (this.strategyState.margin) {
+    const openPosition = getPosition(this.strategyState)
+    if (openPosition) {
       this.strategyState = await closeOpenPositions(this.strategyState)
     }
+
+    this.stopped = true
   }
 
   /**
    * @public
    * @returns {object}
    */
-  generateResults () {
+  generateResults (openPosition = null) {
     const { symbol, tf } = this.strategyOpts
     const { trades: strategyTrades = [], marketData = {} } = this.strategyState
+
+    if (_isPlainObject(openPosition)) {
+      const openOrder = strategyTrades.find(st => st.position_id === openPosition.id)
+      if (openOrder) {
+        openOrder.pl = openPosition.pl
+      }
+    }
 
     const candles = marketData[`candles-${symbol}-${tf}`] || []
     const trades = marketData[`trades-${symbol}`] || []
