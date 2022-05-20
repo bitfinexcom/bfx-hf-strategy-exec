@@ -40,11 +40,12 @@ class LiveStrategyExecution extends EventEmitter {
    * @param {string} args.strategyOpts.tf - time frame to execute on
    * @param {boolean} args.strategyOpts.includeTrades - if true, trade data is subscribed to and processed
    * @param {number} args.strategyOpts.seedCandleCount - size of indicator candle seed window, before which trading is disabled
+   * @param {object} args.priceFeed
    */
   constructor (args) {
     super()
 
-    const { strategy, ws2Manager, rest, strategyOpts } = args
+    const { strategy, ws2Manager, rest, strategyOpts, priceFeed } = args
 
     this.strategyState = {
       ...(strategy || {}),
@@ -54,6 +55,7 @@ class LiveStrategyExecution extends EventEmitter {
     this.ws2Manager = ws2Manager || {}
     this.rest = rest || {}
     this.strategyOpts = strategyOpts || {}
+    this.priceFeed = priceFeed
 
     this.lastCandle = null
     this.lastTrade = null
