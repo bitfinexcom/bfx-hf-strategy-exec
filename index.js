@@ -9,6 +9,7 @@ const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
 const _isFunction = require('lodash/isFunction')
 const _isPlainObject = require('lodash/isPlainObject')
+const BigNumber = require('bignumber.js')
 
 const { candleWidth } = require('bfx-hf-util')
 const { subscribe } = require('bfx-api-node-core')
@@ -76,11 +77,17 @@ class LiveStrategyExecution extends EventEmitter {
 
     const { includeTrades, symbol, tf } = this.strategyOpts
     const candleKey = `trade:${tf}:${symbol}`
+    let lastUpdate = 0
 
     if (includeTrades) {
       this.ws2Manager.onWS('trades', { symbol }, async (trades) => {
         if (trades.length > 1) { // we don't pass snapshots through
           return
+        }
+
+        if (trades.mts > lastUpdate) {
+          this.priceFeed.update(new BigNumber(trades.price))
+          lastUpdate = trades.mts
         }
 
         this._enqueueMessage('trade', trades)
@@ -95,6 +102,11 @@ class LiveStrategyExecution extends EventEmitter {
       const [candle] = candles
       candle.symbol = symbol
       candle.tf = tf
+
+      if (candle.mts > lastUpdate) {
+        this.priceFeed.update(new BigNumber(candle.close))
+        lastUpdate = candle.mts
+      }
 
       this._enqueueMessage('candle', candle)
     })
