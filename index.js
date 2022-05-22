@@ -42,11 +42,12 @@ class LiveStrategyExecution extends EventEmitter {
    * @param {boolean} args.strategyOpts.includeTrades - if true, trade data is subscribed to and processed
    * @param {number} args.strategyOpts.seedCandleCount - size of indicator candle seed window, before which trading is disabled
    * @param {object} args.priceFeed
+   * @param {object} args.perfManager
    */
   constructor (args) {
     super()
 
-    const { strategy, ws2Manager, rest, strategyOpts, priceFeed } = args
+    const { strategy, ws2Manager, rest, strategyOpts, priceFeed, perfManager } = args
 
     this.strategyState = {
       ...(strategy || {}),
@@ -57,6 +58,7 @@ class LiveStrategyExecution extends EventEmitter {
     this.rest = rest || {}
     this.strategyOpts = strategyOpts || {}
     this.priceFeed = priceFeed
+    this.perfManager = perfManager
 
     this.lastCandle = null
     this.lastTrade = null
@@ -207,7 +209,7 @@ class LiveStrategyExecution extends EventEmitter {
     const price = type === 'candle' ? data[candlePrice] : data.price
 
     const openPosition = getPosition(this.strategyState, symbol)
-    if (openPosition) {
+    if (openPosition && price) {
       openPosition.pl = positionPl(this.strategyState, symbol, price)
       this.emit('opened_position_data', openPosition)
     }
@@ -297,6 +299,8 @@ class LiveStrategyExecution extends EventEmitter {
     await this._seedCandles()
 
     this._subscribeCandleAndTradeEvents()
+
+    this.perfManager.on('update', () => this._emitStrategyExecutionResults('perf', this.priceFeed))
   }
 
   /**
@@ -354,6 +358,14 @@ class LiveStrategyExecution extends EventEmitter {
     const accumulatedPLs = strategyTrades.map(x => x.pl)
     const stdDeviation = std(accumulatedPLs.length > 0 ? accumulatedPLs : [0])
     const avgPL = _sum(accumulatedPLs) / accumulatedPLs.length
+    const allocation = this.perfManager.allocation
+    const positionSize = this.perfManager.positionSize()
+    const currentAllocation = this.perfManager.currentAllocation()
+    const availableFunds = this.perfManager.availableFunds
+    const equityCurve = this.perfManager.equityCurve()
+    const ret = this.perfManager.return()
+    const retPerc = this.perfManager.returnPerc()
+    const drawdown = this.perfManager.drawdown()
 
     return {
       vol,
@@ -377,6 +389,15 @@ class LiveStrategyExecution extends EventEmitter {
       avgPL: isNaN(avgPL) ? 0 : avgPL,
       minPL: _isNil(minPL) ? 0 : minPL,
       maxPL: _isNil(maxPL) ? 0 : maxPL,
+
+      allocation,
+      positionSize,
+      currentAllocation,
+      availableFunds,
+      equityCurve,
+      return: ret,
+      returnPerc: retPerc,
+      drawdown,
 
       strategy: {
         trades: strategyTrades.map(t => ({
