@@ -69,6 +69,10 @@ class LiveStrategyExecution extends EventEmitter {
     this._registerManagerEventListeners()
   }
 
+  async invoke (strategyHandler) {
+    this.strategyState = await strategyHandler(this.strategyState)
+  }
+
   /**
    * @private
    */
