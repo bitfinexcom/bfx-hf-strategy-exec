@@ -47,10 +47,10 @@ class LiveStrategyExecution extends EventEmitter {
   constructor (args) {
     super()
 
-    const { strategy, ws2Manager, rest, strategyOpts, priceFeed, perfManager } = args
+    const { strategy = {}, ws2Manager, rest, strategyOpts, priceFeed, perfManager } = args
 
     this.strategyState = {
-      ...(strategy || {}),
+      ...strategy,
       emit: this.emit.bind(this)
     }
 
@@ -59,6 +59,9 @@ class LiveStrategyExecution extends EventEmitter {
     this.strategyOpts = strategyOpts || {}
     this.priceFeed = priceFeed
     this.perfManager = perfManager
+
+    const { candlePrice = 'close' } = strategy
+    this.candlePrice = candlePrice
 
     this.lastCandle = null
     this.lastTrade = null
@@ -110,7 +113,7 @@ class LiveStrategyExecution extends EventEmitter {
       candle.tf = tf
 
       if (candle.mts > lastUpdate) {
-        this.priceFeed.update(new BigNumber(candle.close))
+        this.priceFeed.update(new BigNumber(candle[this.candlePrice]))
         lastUpdate = candle.mts
       }
 
