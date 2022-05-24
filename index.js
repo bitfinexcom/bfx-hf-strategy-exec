@@ -9,6 +9,7 @@ const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
 const _isFunction = require('lodash/isFunction')
 const _isPlainObject = require('lodash/isPlainObject')
+const BigNumber = require('bignumber.js')
 
 const { candleWidth } = require('bfx-hf-util')
 const { subscribe } = require('bfx-api-node-core')
@@ -40,20 +41,27 @@ class LiveStrategyExecution extends EventEmitter {
    * @param {string} args.strategyOpts.tf - time frame to execute on
    * @param {boolean} args.strategyOpts.includeTrades - if true, trade data is subscribed to and processed
    * @param {number} args.strategyOpts.seedCandleCount - size of indicator candle seed window, before which trading is disabled
+   * @param {object} args.priceFeed
+   * @param {object} args.perfManager
    */
   constructor (args) {
     super()
 
-    const { strategy, ws2Manager, rest, strategyOpts } = args
+    const { strategy = {}, ws2Manager, rest, strategyOpts, priceFeed, perfManager } = args
 
     this.strategyState = {
-      ...(strategy || {}),
+      ...strategy,
       emit: this.emit.bind(this)
     }
 
     this.ws2Manager = ws2Manager || {}
     this.rest = rest || {}
     this.strategyOpts = strategyOpts || {}
+    this.priceFeed = priceFeed
+    this.perfManager = perfManager
+
+    const { candlePrice = 'close' } = strategy
+    this.candlePrice = candlePrice
 
     this.lastCandle = null
     this.lastTrade = null
@@ -62,6 +70,10 @@ class LiveStrategyExecution extends EventEmitter {
     this.messages = []
 
     this._registerManagerEventListeners()
+  }
+
+  async invoke (strategyHandler) {
+    this.strategyState = await strategyHandler(this.strategyState)
   }
 
   /**
@@ -74,11 +86,17 @@ class LiveStrategyExecution extends EventEmitter {
 
     const { includeTrades, symbol, tf } = this.strategyOpts
     const candleKey = `trade:${tf}:${symbol}`
+    let lastUpdate = 0
 
     if (includeTrades) {
       this.ws2Manager.onWS('trades', { symbol }, async (trades) => {
         if (trades.length > 1) { // we don't pass snapshots through
           return
+        }
+
+        if (trades.mts > lastUpdate) {
+          this.priceFeed.update(new BigNumber(trades.price))
+          lastUpdate = trades.mts
         }
 
         this._enqueueMessage('trade', trades)
@@ -93,6 +111,11 @@ class LiveStrategyExecution extends EventEmitter {
       const [candle] = candles
       candle.symbol = symbol
       candle.tf = tf
+
+      if (candle.mts > lastUpdate) {
+        this.priceFeed.update(new BigNumber(candle[this.candlePrice]))
+        lastUpdate = candle.mts
+      }
 
       this._enqueueMessage('candle', candle)
     })
@@ -193,7 +216,7 @@ class LiveStrategyExecution extends EventEmitter {
     const price = type === 'candle' ? data[candlePrice] : data.price
 
     const openPosition = getPosition(this.strategyState, symbol)
-    if (openPosition) {
+    if (openPosition && price) {
       openPosition.pl = positionPl(this.strategyState, symbol, price)
       this.emit('opened_position_data', openPosition)
     }
@@ -283,6 +306,8 @@ class LiveStrategyExecution extends EventEmitter {
     await this._seedCandles()
 
     this._subscribeCandleAndTradeEvents()
+
+    this.perfManager.on('update', () => this._emitStrategyExecutionResults('perf', this.priceFeed))
   }
 
   /**
@@ -340,6 +365,14 @@ class LiveStrategyExecution extends EventEmitter {
     const accumulatedPLs = strategyTrades.map(x => x.pl)
     const stdDeviation = std(accumulatedPLs.length > 0 ? accumulatedPLs : [0])
     const avgPL = _sum(accumulatedPLs) / accumulatedPLs.length
+    const allocation = this.perfManager.allocation
+    const positionSize = this.perfManager.positionSize()
+    const currentAllocation = this.perfManager.currentAllocation()
+    const availableFunds = this.perfManager.availableFunds
+    const equityCurve = this.perfManager.equityCurve()
+    const ret = this.perfManager.return()
+    const retPerc = this.perfManager.returnPerc()
+    const drawdown = this.perfManager.drawdown()
 
     return {
       vol,
@@ -363,6 +396,15 @@ class LiveStrategyExecution extends EventEmitter {
       avgPL: isNaN(avgPL) ? 0 : avgPL,
       minPL: _isNil(minPL) ? 0 : minPL,
       maxPL: _isNil(maxPL) ? 0 : maxPL,
+
+      allocation,
+      positionSize,
+      currentAllocation,
+      availableFunds,
+      equityCurve,
+      return: ret,
+      returnPerc: retPerc,
+      drawdown,
 
       strategy: {
         trades: strategyTrades.map(t => ({
