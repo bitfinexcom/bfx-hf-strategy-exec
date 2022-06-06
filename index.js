@@ -9,7 +9,6 @@ const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
 const _isFunction = require('lodash/isFunction')
 const _isPlainObject = require('lodash/isPlainObject')
-const BigNumber = require('bignumber.js')
 
 const { candleWidth } = require('bfx-hf-util')
 const { subscribe } = require('bfx-api-node-core')
@@ -95,7 +94,7 @@ class LiveStrategyExecution extends EventEmitter {
         }
 
         if (trades.mts > lastUpdate) {
-          this.priceFeed.update(new BigNumber(trades.price))
+          this.priceFeed.update(trades.price)
           lastUpdate = trades.mts
         }
 
@@ -113,7 +112,7 @@ class LiveStrategyExecution extends EventEmitter {
       candle.tf = tf
 
       if (candle.mts > lastUpdate) {
-        this.priceFeed.update(new BigNumber(candle[this.candlePrice]))
+        this.priceFeed.update(candle[this.candlePrice])
         lastUpdate = candle.mts
       }
 
