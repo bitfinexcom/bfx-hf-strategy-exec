@@ -45,9 +45,9 @@ const run = () => {
 
     const strategyOptions = {
       symbol: SYMBOLS.EOS_USD,
-      tf: TIME_FRAMES.ONE_DAY,
-      includeTrades: true,
-      seedCandleCount: 5000
+      timeframe: TIME_FRAMES.ONE_DAY,
+      trades: true,
+      candleSeed: 5000
     }
 
     const liveExecutor = new LiveStrategyExecution({ strategy, ws2Manager, rest, strategyOptions })
