@@ -306,7 +306,7 @@ class LiveStrategyExecution extends EventEmitter {
 
     this._subscribeCandleAndTradeEvents()
 
-    this.perfManager.on('update', () => this._emitStrategyExecutionResults('perf', this.priceFeed))
+    this.perfManager.on('update', () => this._emitStrategyExecutionResults('perf', { price: this.priceFeed.price.toNumber() }))
   }
 
   /**
