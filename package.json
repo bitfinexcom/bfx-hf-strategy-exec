@@ -37,7 +37,7 @@
   "dependencies": {
     "bfx-api-node-core": "^1.5.8",
     "bfx-api-node-util": "^1.0.2",
-    "bfx-hf-strategy": "git+https://github.com/bitfinexcom/bfx-hf-strategy.git#v1.3.0",
+    "bfx-hf-strategy": "git+https://github.com/avsek477/bfx-hf-strategy.git#generate-strategy-results",
     "bfx-hf-util": "git+https://github.com/bitfinexcom/bfx-hf-util.git#v1.0.12",
     "debug": "^4.3.3",
     "lodash": "^4.17.10",
