@@ -41,7 +41,6 @@
     "bfx-hf-util": "git+https://github.com/bitfinexcom/bfx-hf-util.git#v1.0.12",
     "debug": "^4.3.3",
     "lodash": "^4.17.10",
-    "mathjs": "^10.1.0",
     "promise-throttle": "^1.0.0"
   },
   "devDependencies": {
