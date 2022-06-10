@@ -35,18 +35,18 @@ class LiveStrategyExecution extends EventEmitter {
    * @param {object} args.strategy - as created by define() from bfx-hf-strategy
    * @param {object} args.ws2Manager - WSv2 pool instance from bfx-api-node-core
    * @param {object} args.rest - restv2 instance
-   * @param {object} args.strategyOpts - execution parameters
-   * @param {string} args.strategyOpts.symbol - market to execute on
-   * @param {string} args.strategyOpts.tf - time frame to execute on
-   * @param {boolean} args.strategyOpts.includeTrades - if true, trade data is subscribed to and processed
-   * @param {number} args.strategyOpts.seedCandleCount - size of indicator candle seed window, before which trading is disabled
+   * @param {object} args.strategyOptions - execution parameters
+   * @param {string} args.strategyOptions.symbol - market to execute on
+   * @param {string} args.strategyOptions.timeframe - time frame to execute on
+   * @param {boolean} args.strategyOptions.trades - if true, trade data is subscribed to and processed
+   * @param {number} args.strategyOptions.candleSeed - size of indicator candle seed window, before which trading is disabled
    * @param {object} args.priceFeed
    * @param {object} args.perfManager
    */
   constructor (args) {
     super()
 
-    const { strategy = {}, ws2Manager, rest, strategyOpts, priceFeed, perfManager } = args
+    const { strategy = {}, ws2Manager, rest, strategyOptions, priceFeed, perfManager } = args
 
     this.strategyState = {
       ...strategy,
@@ -55,7 +55,7 @@ class LiveStrategyExecution extends EventEmitter {
 
     this.ws2Manager = ws2Manager || {}
     this.rest = rest || {}
-    this.strategyOpts = strategyOpts || {}
+    this.strategyOptions = strategyOptions || {}
     this.priceFeed = priceFeed
     this.perfManager = perfManager
 
@@ -83,11 +83,11 @@ class LiveStrategyExecution extends EventEmitter {
       throw new Error('WS2 manager not available')
     }
 
-    const { includeTrades, symbol, tf } = this.strategyOpts
-    const candleKey = `trade:${tf}:${symbol}`
+    const { trades, symbol, timeframe } = this.strategyOptions
+    const candleKey = `trade:${timeframe}:${symbol}`
     let lastUpdate = 0
 
-    if (includeTrades) {
+    if (trades) {
       this.ws2Manager.onWS('trades', { symbol }, async (trades) => {
         if (trades.length > 1) { // we don't pass snapshots through
           return
@@ -109,7 +109,7 @@ class LiveStrategyExecution extends EventEmitter {
 
       const [candle] = candles
       candle.symbol = symbol
-      candle.tf = tf
+      candle.tf = timeframe
 
       if (candle.mts > lastUpdate) {
         this.priceFeed.update(candle[this.candlePrice])
@@ -124,15 +124,15 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   async _seedCandles () {
-    const { seedCandleCount, tf, symbol } = this.strategyOpts
+    const { candleSeed, timeframe, symbol } = this.strategyOptions
 
-    debug('seeding with last ~%d candles...', seedCandleCount)
+    debug('seeding with last ~%d candles...', candleSeed)
 
-    const cWidth = candleWidth(tf)
+    const cWidth = candleWidth(timeframe)
     const now = Date.now()
-    const seedStart = now - (seedCandleCount * cWidth)
+    const seedStart = now - (candleSeed * cWidth)
 
-    for (let i = 0; i < Math.ceil(seedCandleCount / CANDLE_FETCH_LIMIT); i += 1) {
+    for (let i = 0; i < Math.ceil(candleSeed / CANDLE_FETCH_LIMIT); i += 1) {
       let seededCandles = 0
       let candle
 
@@ -142,7 +142,7 @@ class LiveStrategyExecution extends EventEmitter {
       const candleResponse = await pt.add(
         this.rest.candles.bind(this.rest, ({
           symbol,
-          timeframe: tf,
+          timeframe,
           query: {
             limit: CANDLE_FETCH_LIMIT,
             start,
@@ -160,7 +160,7 @@ class LiveStrategyExecution extends EventEmitter {
           continue
         }
 
-        candle.tf = tf
+        candle.tf = timeframe
         candle.symbol = symbol
 
         this.strategyState = await onSeedCandle(this.strategyState, candle)
@@ -210,7 +210,7 @@ class LiveStrategyExecution extends EventEmitter {
   }
 
   _emitStrategyExecutionResults (type = 'candle', data) {
-    const { symbol } = this.strategyOpts
+    const { symbol } = this.strategyOptions
     const { candlePrice } = this.strategyState
     const price = type === 'candle' ? data[candlePrice] : data.price
 
@@ -284,13 +284,13 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   _subscribeCandleAndTradeEvents () {
-    const { includeTrades, symbol, tf } = this.strategyOpts
-    const candleKey = `trade:${tf}:${symbol}`
+    const { trades, symbol, timeframe } = this.strategyOptions
+    const candleKey = `trade:${timeframe}:${symbol}`
 
     this.ws2Manager.withSocket((socket) => {
       let nextSocket = subscribe(socket, 'candles', { key: candleKey })
 
-      if (includeTrades) {
+      if (trades) {
         nextSocket = subscribe(nextSocket, 'trades', { symbol })
       }
 
@@ -332,7 +332,7 @@ class LiveStrategyExecution extends EventEmitter {
    * @returns {object}
    */
   generateResults (openPosition = null) {
-    const { symbol, tf } = this.strategyOpts
+    const { symbol, timeframe } = this.strategyOptions
     const { trades: strategyTrades = [], marketData = {} } = this.strategyState
 
     if (_isPlainObject(openPosition)) {
@@ -342,7 +342,7 @@ class LiveStrategyExecution extends EventEmitter {
       }
     }
 
-    const candles = marketData[`candles-${symbol}-${tf}`] || []
+    const candles = marketData[`candles-${symbol}-${timeframe}`] || []
     const trades = marketData[`trades-${symbol}`] || []
 
     const nCandles = candles.length
