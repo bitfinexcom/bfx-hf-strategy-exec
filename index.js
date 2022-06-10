@@ -1,25 +1,19 @@
 'use strict'
 
-const { std } = require('mathjs')
-const _sum = require('lodash/sum')
-const _min = require('lodash/min')
-const _max = require('lodash/max')
-const _isNil = require('lodash/isNil')
 const _isEmpty = require('lodash/isEmpty')
 const _reverse = require('lodash/reverse')
 const _isFunction = require('lodash/isFunction')
-const _isPlainObject = require('lodash/isPlainObject')
 
 const { candleWidth } = require('bfx-hf-util')
 const { subscribe } = require('bfx-api-node-core')
 const { padCandles } = require('bfx-api-node-util')
 const PromiseThrottle = require('promise-throttle')
 const debug = require('debug')('bfx:hf:strategy-exec')
-
 const {
   onSeedCandle, onCandle, onTrade, closeOpenPositions,
   getPosition, positionPl
 } = require('bfx-hf-strategy')
+const _generateStrategyResults = require('bfx-hf-strategy/lib/util/generate_strategy_results')
 
 const EventEmitter = require('events')
 
@@ -332,86 +326,7 @@ class LiveStrategyExecution extends EventEmitter {
    * @returns {object}
    */
   generateResults (openPosition = null) {
-    const { symbol, timeframe } = this.strategyOptions
-    const { trades: strategyTrades = [], marketData = {} } = this.strategyState
-
-    if (_isPlainObject(openPosition)) {
-      const openOrder = strategyTrades.find(st => st.position_id === openPosition.id)
-      if (openOrder) {
-        openOrder.pl = openPosition.pl
-      }
-    }
-
-    const candles = marketData[`candles-${symbol}-${timeframe}`] || []
-    const trades = marketData[`trades-${symbol}`] || []
-
-    const nCandles = candles.length
-    const nTrades = trades.length
-
-    const nStrategyTrades = strategyTrades.length
-    const pls = strategyTrades.map(t => t.pl)
-    const gains = pls.filter(pl => pl > 0)
-    const losses = pls.filter(pl => pl < 0)
-    const nOpens = pls.filter(pl => pl === 0).length
-    const vol = _sum(strategyTrades.map(t => Math.abs(t.price * t.amount)))
-    const fees = _sum(strategyTrades.map(t => t.fee))
-    const totalGain = _sum(gains)
-    const totalLoss = _sum(losses)
-    const pf = totalGain / Math.abs(totalLoss)
-    const pl = _sum(pls)
-    const minPL = _min(pls)
-    const maxPL = _max(pls)
-    const accumulatedPLs = strategyTrades.map(x => x.pl)
-    const stdDeviation = std(accumulatedPLs.length > 0 ? accumulatedPLs : [0])
-    const avgPL = _sum(accumulatedPLs) / accumulatedPLs.length
-    const allocation = this.perfManager.allocation
-    const positionSize = this.perfManager.positionSize()
-    const currentAllocation = this.perfManager.currentAllocation()
-    const availableFunds = this.perfManager.availableFunds
-    const equityCurve = this.perfManager.equityCurve()
-    const ret = this.perfManager.return()
-    const retPerc = this.perfManager.returnPerc()
-    const drawdown = this.perfManager.drawdown()
-
-    return {
-      vol,
-      fees,
-      candles,
-      trades: trades.map(t => ({
-        ...t,
-        date: new Date(t.mts)
-      })),
-
-      nTrades,
-      nCandles,
-      nStrategyTrades,
-      nOpens,
-      nGains: gains.length,
-      nLosses: losses.length,
-
-      stdDeviation,
-      pl,
-      pf: isNaN(pf) ? 0 : pf,
-      avgPL: isNaN(avgPL) ? 0 : avgPL,
-      minPL: _isNil(minPL) ? 0 : minPL,
-      maxPL: _isNil(maxPL) ? 0 : maxPL,
-
-      allocation,
-      positionSize,
-      currentAllocation,
-      availableFunds,
-      equityCurve,
-      return: ret,
-      returnPerc: retPerc,
-      drawdown,
-
-      strategy: {
-        trades: strategyTrades.map(t => ({
-          ...t,
-          date: new Date(t.mts)
-        }))
-      }
-    }
+    return _generateStrategyResults(this.perfManager, this.strategyState, openPosition)
   }
 }
 
