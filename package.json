@@ -1,6 +1,6 @@
 {
   "name": "bfx-hf-strategy-exec",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "Execution logic for bfx-hf-strategy",
   "main": "./index.js",
   "directories": {
@@ -37,7 +37,7 @@
   "dependencies": {
     "bfx-api-node-core": "^1.5.8",
     "bfx-api-node-util": "^1.0.2",
-    "bfx-hf-strategy": "git+https://github.com/bitfinexcom/bfx-hf-strategy.git#v1.5.2",
+    "bfx-hf-strategy": "git+https://github.com/bitfinexcom/bfx-hf-strategy.git#v1.5.3",
     "bfx-hf-util": "git+https://github.com/bitfinexcom/bfx-hf-util.git#v1.0.12",
     "debug": "^4.3.3",
     "lodash": "^4.17.10",
