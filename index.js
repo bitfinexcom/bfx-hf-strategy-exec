@@ -1,12 +1,10 @@
 'use strict'
 
 const _isEmpty = require('lodash/isEmpty')
-const _reverse = require('lodash/reverse')
 const _isFunction = require('lodash/isFunction')
 
 const { candleWidth } = require('bfx-hf-util')
 const { subscribe } = require('bfx-api-node-core')
-const { padCandles } = require('bfx-api-node-util')
 const PromiseThrottle = require('promise-throttle')
 const debug = require('debug')('bfx:hf:strategy-exec')
 const {
@@ -65,6 +63,33 @@ class LiveStrategyExecution extends EventEmitter {
     this._registerManagerEventListeners()
   }
 
+  _padCandles (candles, candleWidth) {
+    const paddedCandles = [...candles]
+    for (let i = 0; i < candles.length - 1; i += 1) {
+      const candle = candles[i]
+      const nextCandle = candles[i + 1]
+      const candlesToFill = ((nextCandle.mts - candle.mts) / candleWidth) - 1
+
+      if (candlesToFill > 0) {
+        const fillerCandles = Array.apply(null, Array(candlesToFill)).map((c, i) => {
+          return {
+            ...candle,
+            mts: candle.mts + (candleWidth * (i + 1)),
+            open: candle.close,
+            close: candle.close,
+            high: candle.close,
+            low: candle.close,
+            volume: 0
+          }
+        })
+
+        paddedCandles.splice(i + 1, 0, ...fillerCandles)
+      }
+    }
+
+    return paddedCandles
+  }
+
   async invoke (strategyHandler) {
     this.strategyState = await strategyHandler(this.strategyState)
   }
@@ -117,6 +142,19 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @private
    */
+  async _fetchCandles (candleOpts, cWidth) {
+    const candleResponse = await pt.add(
+      this.rest.candles.bind(this.rest, candleOpts)
+    )
+
+    const candles = this._padCandles(candleResponse, cWidth)
+
+    return candles
+  }
+
+  /**
+   * @private
+   */
   async _seedCandles () {
     const { candleSeed, timeframe, symbol } = this.strategyOptions
 
@@ -133,19 +171,16 @@ class LiveStrategyExecution extends EventEmitter {
       const start = seedStart + (i * 1000 * cWidth)
       const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), now)
 
-      const candleResponse = await pt.add(
-        this.rest.candles.bind(this.rest, ({
-          symbol,
-          timeframe,
-          query: {
-            limit: CANDLE_FETCH_LIMIT,
-            start,
-            end
-          }
-        }))
-      )
-
-      const candles = _reverse(padCandles(candleResponse, cWidth))
+      const candles = await this._fetchCandles({
+        symbol,
+        timeframe,
+        query: {
+          limit: CANDLE_FETCH_LIMIT,
+          start,
+          end,
+          sort: 1
+        }
+      }, cWidth)
 
       for (let i = 0; i < candles.length; i += 1) {
         candle = candles[i]
