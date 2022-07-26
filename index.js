@@ -1,6 +1,7 @@
 'use strict'
 
 const _isEmpty = require('lodash/isEmpty')
+const _isFinite = require('lodash/isFinite')
 const _isFunction = require('lodash/isFunction')
 
 const { candleWidth } = require('bfx-hf-util')
@@ -59,6 +60,9 @@ class LiveStrategyExecution extends EventEmitter {
     this.processing = false
     this.stopped = false
     this.messages = []
+
+    this.paused = false
+    this.pausedMts = {}
 
     this._registerManagerEventListeners()
   }
@@ -137,6 +141,64 @@ class LiveStrategyExecution extends EventEmitter {
 
       this._enqueueMessage('candle', candle)
     })
+
+    this.ws2Manager.onWS('open', {}, this._onWSOpen.bind(this))
+    this.ws2Manager.onWS('close', {}, this._onWSClose.bind(this))
+  }
+
+  /**
+   * @private
+   */
+  _onWSClose () {
+    if (this.paused) {
+      return
+    }
+    this.pausedMts.pausedOn = Date.now()
+    this.paused = true
+  }
+
+  /**
+   * @private
+   */
+  async _onWSOpen () {
+    if (!this.paused) return
+
+    this.pausedMts.resumedOn = Date.now()
+
+    // fetching and processing candles for paused duration
+    const candles = await this._fetchCandlesForPausedDuration()
+    while (!_isEmpty(candles)) {
+      const candleData = candles.shift()
+
+      await this._processCandleData(candleData)
+    }
+
+    this.paused = false
+    this.pausedMts = {}
+  }
+
+  /**
+   * @private
+   */
+  async _fetchCandlesForPausedDuration () {
+    const { pausedOn: start, resumedOn: end } = this.pausedMts
+    if (!_isFinite(start) || !_isFinite(end)) {
+      return []
+    }
+
+    const { timeframe, symbol } = this.strategyOptions
+    const cWidth = candleWidth(timeframe)
+    const candles = await this._fetchCandles({
+      symbol,
+      timeframe,
+      query: {
+        start: start - (120 * 1000), // 2 min threshold
+        end,
+        sort: 1
+      }
+    }, cWidth)
+
+    return candles
   }
 
   /**
@@ -214,7 +276,7 @@ class LiveStrategyExecution extends EventEmitter {
 
     this.messages.push({ type, data })
 
-    if (!this.processing) {
+    if (!this.processing || !this.paused) {
       this._processMessages().catch((err) => {
         debug('error processing: %s', err)
 
