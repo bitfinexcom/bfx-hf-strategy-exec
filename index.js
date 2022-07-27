@@ -60,6 +60,7 @@ class LiveStrategyExecution extends EventEmitter {
     this.processing = false
     this.stopped = false
     this.messages = []
+    this.lastPriceFeedUpdate = 0
 
     this.paused = false
     this.pausedMts = {}
@@ -108,17 +109,11 @@ class LiveStrategyExecution extends EventEmitter {
 
     const { trades, symbol, timeframe } = this.strategyOptions
     const candleKey = `trade:${timeframe}:${symbol}`
-    let lastUpdate = 0
 
     if (trades) {
       this.ws2Manager.onWS('trades', { symbol }, async (trades) => {
         if (trades.length > 1) { // we don't pass snapshots through
           return
-        }
-
-        if (trades.mts > lastUpdate) {
-          this.priceFeed.update(trades.price)
-          lastUpdate = trades.mts
         }
 
         this._enqueueMessage('trade', trades)
@@ -133,11 +128,6 @@ class LiveStrategyExecution extends EventEmitter {
       const [candle] = candles
       candle.symbol = symbol
       candle.tf = timeframe
-
-      if (candle.mts > lastUpdate) {
-        this.priceFeed.update(candle[this.candlePrice])
-        lastUpdate = candle.mts
-      }
 
       this._enqueueMessage('candle', candle)
     })
@@ -322,6 +312,11 @@ class LiveStrategyExecution extends EventEmitter {
       return
     }
 
+    if (data.mts > this.lastPriceFeedUpdate) {
+      this.priceFeed.update(data.price)
+      this.lastPriceFeedUpdate = data.mts
+    }
+
     const { symbol } = this.strategyState
     data.symbol = symbol
     debug('recv trade: %j', data)
@@ -335,6 +330,11 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   async _processCandleData (data) {
+    if (data.mts > this.lastPriceFeedUpdate) {
+      this.priceFeed.update(data[this.candlePrice])
+      this.lastPriceFeedUpdate = data.mts
+    }
+
     if (this.lastCandle === null || this.lastCandle.mts === data.mts) {
       // in case of first candle received or candle update event
       this.lastCandle = data
