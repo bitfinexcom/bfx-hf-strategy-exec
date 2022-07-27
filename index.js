@@ -157,12 +157,18 @@ class LiveStrategyExecution extends EventEmitter {
 
     // fetching and processing candles for paused duration
     const candles = await this._fetchCandlesForPausedDuration()
-    while (!_isEmpty(candles)) {
-      const candleData = candles.shift()
+    const candleDataMessage = candles.map(candle => {
+      return {
+        type: 'candle',
+        data: candle.toJS()
+      }
+    })
 
-      await this._processCandleData(candleData)
-    }
-
+    this.messages.unshift(...candleDataMessage)
+    // preventing wrong processing order incase residual messages were remaining before unshift
+    this.messages.sort((a, b) => {
+      return a.data.mts - b.data.mts
+    })
     this.paused = false
     this.pausedMts = {}
   }
