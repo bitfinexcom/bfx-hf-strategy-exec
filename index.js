@@ -11,9 +11,10 @@ const PromiseThrottle = require('promise-throttle')
 const debug = require('debug')('bfx:hf:strategy-exec')
 const {
   onSeedCandle, onCandle, onTrade, closeOpenPositions,
-  getPosition, positionPl
+  getPosition
 } = require('bfx-hf-strategy')
 const _generateStrategyResults = require('bfx-hf-strategy/lib/util/generate_strategy_results')
+const { calcRealizedPositionPnl, calcUnrealizedPositionPnl } = require('bfx-hf-strategy/lib/pnl')
 
 const EventEmitter = require('events')
 
@@ -210,7 +211,8 @@ class LiveStrategyExecution extends EventEmitter {
 
     const openPosition = getPosition(this.strategyState, symbol)
     if (openPosition && price) {
-      openPosition.pl = positionPl(this.strategyState, symbol, price)
+      openPosition.realizedPnl = calcRealizedPositionPnl(openPosition)
+      openPosition.unrealizedPnl = calcUnrealizedPositionPnl(openPosition, price)
       this.emit('opened_position_data', openPosition)
     }
 
