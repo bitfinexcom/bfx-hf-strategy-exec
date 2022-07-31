@@ -211,9 +211,11 @@ class LiveStrategyExecution extends EventEmitter {
 
     const openPosition = getPosition(this.strategyState, symbol)
     if (openPosition && price) {
-      openPosition.realizedPnl = calcRealizedPositionPnl(openPosition)
-      openPosition.unrealizedPnl = calcUnrealizedPositionPnl(openPosition, price)
-      this.emit('opened_position_data', openPosition)
+      this.emit('opened_position_data', {
+        ...openPosition,
+        realizedPnl: calcRealizedPositionPnl(openPosition),
+        unrealizedPnl: calcUnrealizedPositionPnl(openPosition, price)
+      })
     }
 
     this.emit('rt_execution_results', this.generateResults(openPosition))
