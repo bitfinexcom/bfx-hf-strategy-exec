@@ -1,12 +1,11 @@
 'use strict'
 
 const _isEmpty = require('lodash/isEmpty')
-const _reverse = require('lodash/reverse')
+const _isFinite = require('lodash/isFinite')
 const _isFunction = require('lodash/isFunction')
 
 const { candleWidth } = require('bfx-hf-util')
 const { subscribe } = require('bfx-api-node-core')
-const { padCandles } = require('bfx-api-node-util')
 const PromiseThrottle = require('promise-throttle')
 const debug = require('debug')('bfx:hf:strategy-exec')
 const {
@@ -61,8 +60,39 @@ class LiveStrategyExecution extends EventEmitter {
     this.processing = false
     this.stopped = false
     this.messages = []
+    this.lastPriceFeedUpdate = 0
+
+    this.paused = false
+    this.pausedMts = {}
 
     this._registerManagerEventListeners()
+  }
+
+  _padCandles (candles, candleWidth) {
+    const paddedCandles = [...candles]
+    for (let i = 0; i < candles.length - 1; i += 1) {
+      const candle = candles[i]
+      const nextCandle = candles[i + 1]
+      const candlesToFill = ((nextCandle.mts - candle.mts) / candleWidth) - 1
+
+      if (candlesToFill > 0) {
+        const fillerCandles = Array.apply(null, Array(candlesToFill)).map((c, i) => {
+          return {
+            ...candle,
+            mts: candle.mts + (candleWidth * (i + 1)),
+            open: candle.close,
+            close: candle.close,
+            high: candle.close,
+            low: candle.close,
+            volume: 0
+          }
+        })
+
+        paddedCandles.splice(i + 1, 0, ...fillerCandles)
+      }
+    }
+
+    return paddedCandles
   }
 
   async invoke (strategyHandler) {
@@ -79,17 +109,11 @@ class LiveStrategyExecution extends EventEmitter {
 
     const { trades, symbol, timeframe } = this.strategyOptions
     const candleKey = `trade:${timeframe}:${symbol}`
-    let lastUpdate = 0
 
     if (trades) {
       this.ws2Manager.onWS('trades', { symbol }, async (trades) => {
         if (trades.length > 1) { // we don't pass snapshots through
           return
-        }
-
-        if (trades.mts > lastUpdate) {
-          this.priceFeed.update(trades.price)
-          lastUpdate = trades.mts
         }
 
         this._enqueueMessage('trade', trades)
@@ -105,13 +129,85 @@ class LiveStrategyExecution extends EventEmitter {
       candle.symbol = symbol
       candle.tf = timeframe
 
-      if (candle.mts > lastUpdate) {
-        this.priceFeed.update(candle[this.candlePrice])
-        lastUpdate = candle.mts
-      }
-
       this._enqueueMessage('candle', candle)
     })
+
+    this.ws2Manager.onWS('open', {}, this._onWSOpen.bind(this))
+    this.ws2Manager.onWS('close', {}, this._onWSClose.bind(this))
+  }
+
+  /**
+   * @private
+   */
+  _onWSClose () {
+    if (this.paused) {
+      return
+    }
+    this.pausedMts.pausedOn = Date.now()
+    this.paused = true
+  }
+
+  /**
+   * @private
+   */
+  async _onWSOpen () {
+    if (!this.paused) return
+
+    this.pausedMts.resumedOn = Date.now()
+
+    // fetching and processing candles for paused duration
+    const candles = await this._fetchCandlesForPausedDuration()
+    const candleDataMessage = candles.map(candle => {
+      return {
+        type: 'candle',
+        data: candle.toJS()
+      }
+    })
+
+    this.messages.unshift(...candleDataMessage)
+    // preventing wrong processing order incase residual messages were remaining before unshift
+    this.messages.sort((a, b) => {
+      return a.data.mts - b.data.mts
+    })
+    this.paused = false
+    this.pausedMts = {}
+  }
+
+  /**
+   * @private
+   */
+  async _fetchCandlesForPausedDuration () {
+    const { pausedOn: start, resumedOn: end } = this.pausedMts
+    if (!_isFinite(start) || !_isFinite(end)) {
+      return []
+    }
+
+    const { timeframe, symbol } = this.strategyOptions
+    const cWidth = candleWidth(timeframe)
+    const candles = await this._fetchCandles({
+      symbol,
+      timeframe,
+      query: {
+        start: start - (120 * 1000), // 2 min threshold
+        end,
+        sort: 1
+      }
+    }, cWidth)
+
+    return candles
+  }
+
+  /**
+   * @private
+   */
+  async _fetchCandles (candleOpts, cWidth) {
+    const candleResponse = await pt.add(
+      this.rest.candles.bind(this.rest, candleOpts)
+    )
+
+    const candles = this._padCandles(candleResponse, cWidth)
+
+    return candles
   }
 
   /**
@@ -133,19 +229,16 @@ class LiveStrategyExecution extends EventEmitter {
       const start = seedStart + (i * 1000 * cWidth)
       const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), now)
 
-      const candleResponse = await pt.add(
-        this.rest.candles.bind(this.rest, ({
-          symbol,
-          timeframe,
-          query: {
-            limit: CANDLE_FETCH_LIMIT,
-            start,
-            end
-          }
-        }))
-      )
-
-      const candles = _reverse(padCandles(candleResponse, cWidth))
+      const candles = await this._fetchCandles({
+        symbol,
+        timeframe,
+        query: {
+          limit: CANDLE_FETCH_LIMIT,
+          start,
+          end,
+          sort: 1
+        }
+      }, cWidth)
 
       for (let i = 0; i < candles.length; i += 1) {
         candle = candles[i]
@@ -179,7 +272,7 @@ class LiveStrategyExecution extends EventEmitter {
 
     this.messages.push({ type, data })
 
-    if (!this.processing) {
+    if (!this.processing || !this.paused) {
       this._processMessages().catch((err) => {
         debug('error processing: %s', err)
 
@@ -225,6 +318,11 @@ class LiveStrategyExecution extends EventEmitter {
       return
     }
 
+    if (data.mts > this.lastPriceFeedUpdate) {
+      this.priceFeed.update(data.price)
+      this.lastPriceFeedUpdate = data.mts
+    }
+
     const { symbol } = this.strategyState
     data.symbol = symbol
     debug('recv trade: %j', data)
@@ -238,6 +336,11 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   async _processCandleData (data) {
+    if (data.mts > this.lastPriceFeedUpdate) {
+      this.priceFeed.update(data[this.candlePrice])
+      this.lastPriceFeedUpdate = data.mts
+    }
+
     if (this.lastCandle === null || this.lastCandle.mts === data.mts) {
       // in case of first candle received or candle update event
       this.lastCandle = data
