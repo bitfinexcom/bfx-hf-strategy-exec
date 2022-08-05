@@ -40,16 +40,16 @@ class LiveStrategyExecution extends EventEmitter {
   constructor (args) {
     super()
 
-    const { strategy = {}, ws2Manager, rest, strategyOptions, priceFeed, perfManager } = args
+    const { strategy, ws2Manager, rest, strategyOptions, priceFeed, perfManager } = args
 
     this.strategyState = {
       ...strategy,
       emit: this.emit.bind(this)
     }
 
-    this.ws2Manager = ws2Manager || {}
-    this.rest = rest || {}
-    this.strategyOptions = strategyOptions || {}
+    this.ws2Manager = ws2Manager
+    this.rest = rest
+    this.strategyOptions = strategyOptions
     this.priceFeed = priceFeed
     this.perfManager = perfManager
 
@@ -108,18 +108,20 @@ class LiveStrategyExecution extends EventEmitter {
       throw new Error('WS2 manager not available')
     }
 
-    const { trades, symbol, timeframe } = this.strategyOptions
+    const { trades: includeTrades, symbol, timeframe } = this.strategyOptions
     const candleKey = `trade:${timeframe}:${symbol}`
 
-    if (trades) {
-      this.ws2Manager.onWS('trades', { symbol }, async (trades) => {
-        if (trades.length > 1) { // we don't pass snapshots through
-          return
-        }
+    this.ws2Manager.onWS('trades', { symbol }, async (trades) => {
+      if (trades.length > 1) { // we don't pass snapshots through
+        return
+      }
 
+      console.log(trades)
+
+      if (includeTrades) {
         this._enqueueMessage('trade', trades)
-      })
-    }
+      }
+    })
 
     this.ws2Manager.onWS('candles', { key: candleKey }, async (candles) => {
       if (candles.length > 1) { // seeding happens at start via RESTv2
@@ -385,17 +387,12 @@ class LiveStrategyExecution extends EventEmitter {
    * @private
    */
   _subscribeCandleAndTradeEvents () {
-    const { trades, symbol, timeframe } = this.strategyOptions
+    const { symbol, timeframe } = this.strategyOptions
     const candleKey = `trade:${timeframe}:${symbol}`
 
     this.ws2Manager.withSocket((socket) => {
-      let nextSocket = subscribe(socket, 'candles', { key: candleKey })
-
-      if (trades) {
-        nextSocket = subscribe(nextSocket, 'trades', { symbol })
-      }
-
-      return nextSocket
+      const nextSocket = subscribe(socket, 'candles', { key: candleKey })
+      return subscribe(nextSocket, 'trades', { symbol })
     })
   }
 
