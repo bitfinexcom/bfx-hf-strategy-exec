@@ -116,10 +116,13 @@ class LiveStrategyExecution extends EventEmitter {
         return
       }
 
-      console.log(trades)
-
       if (includeTrades) {
         this._enqueueMessage('trade', trades)
+      }
+
+      if (trades.mts > this.lastPriceFeedUpdate) {
+        this.priceFeed.update(trades.price, trades.mts)
+        this.lastPriceFeedUpdate = trades.mts
       }
     })
 
@@ -324,11 +327,6 @@ class LiveStrategyExecution extends EventEmitter {
       return
     }
 
-    if (data.mts > this.lastPriceFeedUpdate) {
-      this.priceFeed.update(data.price)
-      this.lastPriceFeedUpdate = data.mts
-    }
-
     const { symbol } = this.strategyState
     data.symbol = symbol
     debug('recv trade: %j', data)
@@ -343,7 +341,7 @@ class LiveStrategyExecution extends EventEmitter {
    */
   async _processCandleData (data) {
     if (data.mts > this.lastPriceFeedUpdate) {
-      this.priceFeed.update(data[this.candlePrice])
+      this.priceFeed.update(data[this.candlePrice], data.mts)
       this.lastPriceFeedUpdate = data.mts
     }
 
