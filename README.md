@@ -21,7 +21,7 @@ npm i --save bfx-hf-strategy-exec
 const { SYMBOLS, TIME_FRAMES } = require('bfx-hf-util')
 const { RESTv2 } = require('bfx-api-node-rest')
 const { Manager } = require('bfx-api-node-core')
-const LiveStrategyExecution = require('bfx-hf-stratey-exec')
+const LiveStrategyExecution = require('bfx-hf-strategy-exec')
 const CustomTradingStrategy = require('./somewhere')
 
 const ws2Manager = new Manager({ /*...*/ }) // see bfx-api-node-core docs
