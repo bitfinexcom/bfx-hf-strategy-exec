@@ -405,6 +405,12 @@ class LiveStrategyExecution extends EventEmitter {
     this.perfManager.on('update', () => this._emitStrategyExecutionResults('perf', { price: this.priceFeed.price.toNumber() }))
   }
 
+  async restartExecution (ws2Manager) {
+    this.ws2Manager = ws2Manager
+    this._registerManagerEventListeners()
+    await this.execute()
+  }
+
   /**
    * @public
    */
