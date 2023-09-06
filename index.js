@@ -200,6 +200,8 @@ class LiveStrategyExecution extends EventEmitter {
     })
     this.paused = false
     this.pausedMts = {}
+
+    this._setNextCandleTimeout()
   }
 
   /**
@@ -289,6 +291,8 @@ class LiveStrategyExecution extends EventEmitter {
         seededCandles, new Date(start).toLocaleString(), new Date(end).toLocaleString()
       )
     }
+
+    this._setNextCandleTimeout()
   }
 
   /**
@@ -378,6 +382,41 @@ class LiveStrategyExecution extends EventEmitter {
       this.strategyState = await onCandle(this.strategyState, this.lastCandle) // send closed candle data
       this.lastCandle = data // save new candle data
       this._emitStrategyExecutionResults('candle', data)
+    }
+
+    this._setNextCandleTimeout()
+  }
+
+  // set timeout while waiting for next candle
+  _setNextCandleTimeout () {
+    if (this.nextCandleTimeout) clearTimeout(this.nextCandleTimeout)
+
+    // don't set timeout if execution is paused
+    if (this.paused) return
+
+    const { timeframe } = this.strategyOptions
+    const cWidth = candleWidth(timeframe)
+    const timeToWaitForData = cWidth + 10000 // additional 10 seconds wait
+
+    // subtract whatever time has passed since last candle
+    const sinceLastCandle = Date.now() - this.lastCandle.mts
+    const timeout = timeToWaitForData - sinceLastCandle
+
+    this.nextCandleTimeout = setTimeout(async () => {
+      await this._createNextCandleFromLast(cWidth)
+    }, timeout)
+  }
+
+  async _createNextCandleFromLast (candleWidth) {
+    if (this.paused) return
+
+    // if no new candle received during wait time, create new from last candle
+    const sinceLastCandle = Date.now() - this.lastCandle.mts
+    if (sinceLastCandle > candleWidth) {
+      const candle = this.lastCandle
+      const newCandle = this._copyCandleWithNewTime(candle, candle.mts + candleWidth)
+      debug('no candle received, created new candle %j', newCandle)
+      await this._processCandleData(newCandle)
     }
   }
 
