@@ -18,6 +18,7 @@ const { calcRealizedPositionPnl, calcUnrealizedPositionPnl } = require('bfx-hf-s
 const EventEmitter = require('events')
 
 const CANDLE_FETCH_LIMIT = 1000
+const CANDLE_FETCH_SECTION = 'hist'
 const pt = new PromiseThrottle({
   requestsPerSecond: 10.0 / 60.0, // taken from docs
   promiseImplementation: Promise
@@ -218,6 +219,7 @@ class LiveStrategyExecution extends EventEmitter {
     const candles = await this._fetchCandles({
       symbol,
       timeframe,
+      section: CANDLE_FETCH_SECTION,
       query: {
         start: start - (120 * 1000), // 2 min threshold
         end,
@@ -263,6 +265,7 @@ class LiveStrategyExecution extends EventEmitter {
       const candles = await this._fetchCandles({
         symbol,
         timeframe,
+        section: CANDLE_FETCH_SECTION,
         query: {
           limit: CANDLE_FETCH_LIMIT,
           start,
