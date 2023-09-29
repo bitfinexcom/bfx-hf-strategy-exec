@@ -14,7 +14,6 @@ const {
 } = require('bfx-hf-strategy')
 const _generateStrategyResults = require('bfx-hf-strategy/lib/util/generate_strategy_results')
 const { calcRealizedPositionPnl, calcUnrealizedPositionPnl } = require('bfx-hf-strategy/lib/pnl')
-const { alignRangeMts } = require('bfx-hf-util')
 
 const EventEmitter = require('events')
 
@@ -227,6 +226,9 @@ class LiveStrategyExecution extends EventEmitter {
     })
     this.paused = false
     this.pausedMts = {}
+
+    // set timeout while waiting for next candle
+    this._setNextCandleTimeout()
   }
 
   /**
@@ -277,17 +279,14 @@ class LiveStrategyExecution extends EventEmitter {
 
     const cWidth = candleWidth(timeframe)
     const now = Date.now()
-
-    // align start time with candle mts range
-    const alignedStartTs = alignRangeMts(timeframe, now)
-    const seedStart = alignedStartTs - (candleSeed * cWidth)
+    const seedStart = now - (candleSeed * cWidth)
 
     for (let i = 0; i < Math.ceil(candleSeed / CANDLE_FETCH_LIMIT); i += 1) {
       let seededCandles = 0
       let candle
 
       const start = seedStart + (i * 1000 * cWidth)
-      const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), alignedStartTs)
+      const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), now)
 
       const candles = await this._fetchCandles({
         symbol,
@@ -321,6 +320,9 @@ class LiveStrategyExecution extends EventEmitter {
         seededCandles, new Date(start).toLocaleString(), new Date(end).toLocaleString()
       )
     }
+
+    // set timeout while waiting for next candle
+    this._setNextCandleTimeout()
   }
 
   /**
@@ -442,6 +444,46 @@ class LiveStrategyExecution extends EventEmitter {
       this.strategyState = await onCandle(this.strategyState, this.lastCandle) // send closed candle data
       this.lastCandle = data // save new candle data
       this._emitStrategyExecutionResults('candle', data)
+    }
+
+    // set timeout while waiting for next candle
+    this._setNextCandleTimeout()
+  }
+
+  /**
+   * @private
+   */
+  _setNextCandleTimeout () {
+    if (this.paused || this.stopped) return
+
+    if (this.nextCandleTimeout) clearTimeout(this.nextCandleTimeout)
+
+    const { timeframe } = this.strategyOptions
+    const cWidth = candleWidth(timeframe)
+    // use candle duration as additional time to wait for candle
+    const timeToWaitForCandle = cWidth * 2
+    const sinceLastCandle = Date.now() - this.lastCandle.mts
+    const timeout = timeToWaitForCandle - sinceLastCandle
+
+    this.nextCandleTimeout = setTimeout(async () => {
+      await this._createNextCandleFromLast(cWidth)
+    }, timeout)
+  }
+
+  /**
+   * @private
+   */
+  async _createNextCandleFromLast (cWidth) {
+    if (this.paused || this.stopped) return
+
+    // if no new candle received during wait time, create new from last candle
+    const sinceLastCandle = Date.now() - this.lastCandle.mts
+    const timeToWaitForCandle = cWidth * 2
+    if (sinceLastCandle >= timeToWaitForCandle) {
+      const candle = this.lastCandle
+      const newCandle = this._copyCandleWithNewTime(candle, candle.mts + cWidth)
+      debug('no candle received, created new candle %j', newCandle)
+      await this._processCandleData(newCandle)
     }
   }
 
