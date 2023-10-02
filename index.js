@@ -14,6 +14,7 @@ const {
 } = require('bfx-hf-strategy')
 const _generateStrategyResults = require('bfx-hf-strategy/lib/util/generate_strategy_results')
 const { calcRealizedPositionPnl, calcUnrealizedPositionPnl } = require('bfx-hf-strategy/lib/pnl')
+const { alignRangeMts } = require('bfx-hf-util')
 
 const EventEmitter = require('events')
 
@@ -279,14 +280,16 @@ class LiveStrategyExecution extends EventEmitter {
 
     const cWidth = candleWidth(timeframe)
     const now = Date.now()
-    const seedStart = now - (candleSeed * cWidth)
+    // align start time with candle mts range
+    const alignedStartTs = alignRangeMts(timeframe, now)
+    const seedStart = alignedStartTs - (candleSeed * cWidth)
 
     for (let i = 0; i < Math.ceil(candleSeed / CANDLE_FETCH_LIMIT); i += 1) {
       let seededCandles = 0
       let candle
 
       const start = seedStart + (i * 1000 * cWidth)
-      const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), now)
+      const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), alignedStartTs)
 
       const candles = await this._fetchCandles({
         symbol,
