@@ -91,8 +91,8 @@ class LiveStrategyExecution extends EventEmitter {
       const candleTime = candle.mts
 
       // if start candles are missing
-      if (i === 0 && candleTime > (startTime + candleWidth)) {
-        const candlesToFill = Math.ceil((candleTime - startTime) / candleWidth) - 1
+      if (i === 0 && candleTime >= (startTime + candleWidth)) {
+        const candlesToFill = Math.ceil((candleTime - startTime) / candleWidth)
         if (candlesToFill > 0) {
           const fillerCandles = Array.apply(null, Array(candlesToFill)).map((c, i) => {
             return this._copyCandleWithNewTime(candle, candle.mts - (candleWidth * (candlesToFill - i)))
@@ -464,7 +464,7 @@ class LiveStrategyExecution extends EventEmitter {
     const { timeframe } = this.strategyOptions
     const cWidth = candleWidth(timeframe)
     // use candle duration as additional time to wait for candle
-    const timeToWaitForCandle = cWidth * 2
+    const timeToWaitForCandle = this._calculateTimeToWaitForCandle(cWidth)
     const sinceLastCandle = Date.now() - this.lastCandle.mts
     const timeout = timeToWaitForCandle - sinceLastCandle
 
@@ -476,12 +476,19 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @private
    */
+  _calculateTimeToWaitForCandle (cWidth) {
+    return cWidth * 1.5
+  }
+
+  /**
+   * @private
+   */
   async _createNextCandleFromLast (cWidth) {
     if (this.paused || this.stopped) return
 
     // if no new candle received during wait time, create new from last candle
     const sinceLastCandle = Date.now() - this.lastCandle.mts
-    const timeToWaitForCandle = cWidth * 2
+    const timeToWaitForCandle = this._calculateTimeToWaitForCandle(cWidth)
     if (sinceLastCandle >= timeToWaitForCandle) {
       const candle = this.lastCandle
       const newCandle = this._copyCandleWithNewTime(candle, candle.mts + cWidth)
