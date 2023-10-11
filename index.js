@@ -10,7 +10,7 @@ const PromiseThrottle = require('promise-throttle')
 const debug = require('debug')('bfx:hf:strategy-exec')
 const {
   onSeedCandle, onCandle, onTrade, closeOpenPositions,
-  getPosition
+  getPosition, onOrder
 } = require('bfx-hf-strategy')
 const _generateStrategyResults = require('bfx-hf-strategy/lib/util/generate_strategy_results')
 const { calcRealizedPositionPnl, calcUnrealizedPositionPnl } = require('bfx-hf-strategy/lib/pnl')
@@ -23,6 +23,9 @@ const pt = new PromiseThrottle({
   requestsPerSecond: 10.0 / 60.0, // taken from docs
   promiseImplementation: Promise
 })
+const ORDER_CLOSE_EVENT = 'auth:oc'
+const WALLET_SNAPSHOT_EVENT = 'auth:ws'
+const WALLET_UPDATE_EVENT = 'auth:wu'
 
 class LiveStrategyExecution extends EventEmitter {
   /**
@@ -45,6 +48,15 @@ class LiveStrategyExecution extends EventEmitter {
 
     this.strategyState = {
       ...strategy,
+      useMaxLeverage: strategyOptions.useMaxLeverage,
+      leverage: strategyOptions.leverage,
+      increaseLeverage: strategyOptions.increaseLeverage,
+      addStopOrder: strategyOptions.addStopOrder,
+      stopOrderPercent: strategyOptions.stopOrderPercent,
+      isDerivative: strategyOptions.isDerivative,
+      maxLeverage: strategyOptions.maxLeverage,
+      baseCurrency: strategyOptions.baseCurrency,
+      quoteCurrency: strategyOptions.quoteCurrency,
       emit: this.emit.bind(this)
     }
 
@@ -137,6 +149,19 @@ class LiveStrategyExecution extends EventEmitter {
       candle.tf = timeframe
 
       this._enqueueMessage('candle', candle)
+    })
+
+    // closed orders
+    this.ws2Manager.onWS(ORDER_CLOSE_EVENT, {}, async (data) => {
+      this._enqueueMessage(ORDER_CLOSE_EVENT, data)
+    })
+
+    this.ws2Manager.onWS(WALLET_SNAPSHOT_EVENT, {}, async (data) => {
+      this._enqueueMessage(WALLET_SNAPSHOT_EVENT, data)
+    })
+
+    this.ws2Manager.onWS(WALLET_UPDATE_EVENT, {}, async (data) => {
+      this._enqueueMessage(WALLET_UPDATE_EVENT, data)
     })
 
     this.ws2Manager.onWS('open', {}, this._onWSOpen.bind(this))
@@ -342,6 +367,38 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @private
    */
+  async _processWalletData (data, type) {
+    if (!this.strategyState) return
+
+    if (type === WALLET_SNAPSHOT_EVENT) {
+      this.strategyState.wallets = data._collection ? data._collection.map(wallet => {
+        return {
+          currency: wallet.currency,
+          type: wallet.type,
+          balance: wallet.balance,
+          balanceAvailable: wallet.balanceAvailable
+        }
+      }) : []
+    } else if (type === WALLET_UPDATE_EVENT && this.strategyState.wallets) {
+      this.strategyState.wallets.forEach(wallet => {
+        if (wallet.currency === data.currency && wallet.type === data.type) {
+          wallet.balance = data.balance || wallet.balance
+          wallet.balanceAvailable = data.balanceAvailable || wallet.balanceAvailable
+        }
+      })
+    }
+  }
+
+  /**
+   * @private
+   */
+  async _processOrderData (data) {
+    this.strategyState = await onOrder(this.strategyState, data)
+  }
+
+  /**
+   * @private
+   */
   async _processCandleData (data) {
     if (data.mts > this.lastPriceFeedUpdate) {
       this.priceFeed.update(data[this.candlePrice], data.mts)
@@ -375,6 +432,21 @@ class LiveStrategyExecution extends EventEmitter {
 
       case 'candle': {
         await this._processCandleData(data)
+        break
+      }
+
+      case ORDER_CLOSE_EVENT: {
+        await this._processOrderData(data)
+        break
+      }
+
+      case WALLET_SNAPSHOT_EVENT: {
+        await this._processWalletData(data, type)
+        break
+      }
+
+      case WALLET_UPDATE_EVENT: {
+        await this._processWalletData(data, type)
         break
       }
 
