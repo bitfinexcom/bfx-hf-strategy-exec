@@ -14,6 +14,7 @@ const {
 } = require('bfx-hf-strategy')
 const _generateStrategyResults = require('bfx-hf-strategy/lib/util/generate_strategy_results')
 const { calcRealizedPositionPnl, calcUnrealizedPositionPnl } = require('bfx-hf-strategy/lib/pnl')
+const { alignRangeMts } = require('bfx-hf-util')
 
 const EventEmitter = require('events')
 
@@ -82,31 +83,54 @@ class LiveStrategyExecution extends EventEmitter {
     this._registerManagerEventListeners()
   }
 
-  _padCandles (candles, candleWidth) {
+  _padCandles (candles, candleWidth, { start: startTime, end: endTime }) {
     const paddedCandles = [...candles]
-    for (let i = 0; i < candles.length - 1; i += 1) {
+    let addedCandlesCount = 0
+    for (let i = 0; i < candles.length; i += 1) {
       const candle = candles[i]
+      const candleTime = candle.mts
+
+      // if start candles are missing
+      if (i === 0 && candleTime >= (startTime + candleWidth)) {
+        const candlesToFill = Math.ceil((candleTime - startTime) / candleWidth)
+        if (candlesToFill > 0) {
+          const fillerCandles = Array.apply(null, Array(candlesToFill)).map((c, i) => {
+            return this._copyCandleWithNewTime(candle, candle.mts - (candleWidth * (candlesToFill - i)))
+          })
+
+          paddedCandles.splice(0, 0, ...fillerCandles)
+          addedCandlesCount += fillerCandles.length
+        }
+      }
+
+      // if middle or end candles are missing
       const nextCandle = candles[i + 1]
-      const candlesToFill = ((nextCandle.mts - candle.mts) / candleWidth) - 1
+      const nextCandleTime = nextCandle ? nextCandle.mts : endTime
+      const candlesToFill = Math.ceil((nextCandleTime - candleTime) / candleWidth) - 1
 
       if (candlesToFill > 0) {
         const fillerCandles = Array.apply(null, Array(candlesToFill)).map((c, i) => {
-          return {
-            ...candle,
-            mts: candle.mts + (candleWidth * (i + 1)),
-            open: candle.close,
-            close: candle.close,
-            high: candle.close,
-            low: candle.close,
-            volume: 0
-          }
+          return this._copyCandleWithNewTime(candle, candle.mts + (candleWidth * (i + 1)))
         })
 
-        paddedCandles.splice(i + 1, 0, ...fillerCandles)
+        paddedCandles.splice(i + 1 + addedCandlesCount, 0, ...fillerCandles)
+        addedCandlesCount += fillerCandles.length
       }
     }
 
     return paddedCandles
+  }
+
+  _copyCandleWithNewTime (candle, newTime) {
+    return {
+      ...candle,
+      mts: newTime,
+      open: candle.close,
+      close: candle.close,
+      high: candle.close,
+      low: candle.close,
+      volume: 0
+    }
   }
 
   async invoke (strategyHandler) {
@@ -203,6 +227,9 @@ class LiveStrategyExecution extends EventEmitter {
     })
     this.paused = false
     this.pausedMts = {}
+
+    // set timeout while waiting for next candle
+    this._setNextCandleTimeout()
   }
 
   /**
@@ -238,7 +265,7 @@ class LiveStrategyExecution extends EventEmitter {
       this.rest.candles.bind(this.rest, candleOpts)
     )
 
-    const candles = this._padCandles(candleResponse, cWidth)
+    const candles = this._padCandles(candleResponse, cWidth, candleOpts.query)
 
     return candles
   }
@@ -253,14 +280,16 @@ class LiveStrategyExecution extends EventEmitter {
 
     const cWidth = candleWidth(timeframe)
     const now = Date.now()
-    const seedStart = now - (candleSeed * cWidth)
+    // align start time with candle mts range
+    const alignedStartTs = alignRangeMts(timeframe, now)
+    const seedStart = alignedStartTs - (candleSeed * cWidth)
 
     for (let i = 0; i < Math.ceil(candleSeed / CANDLE_FETCH_LIMIT); i += 1) {
       let seededCandles = 0
       let candle
 
       const start = seedStart + (i * 1000 * cWidth)
-      const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), now)
+      const end = Math.min(seedStart + ((i + 1) * 1000 * cWidth), alignedStartTs)
 
       const candles = await this._fetchCandles({
         symbol,
@@ -294,6 +323,9 @@ class LiveStrategyExecution extends EventEmitter {
         seededCandles, new Date(start).toLocaleString(), new Date(end).toLocaleString()
       )
     }
+
+    // set timeout while waiting for next candle
+    this._setNextCandleTimeout()
   }
 
   /**
@@ -415,6 +447,53 @@ class LiveStrategyExecution extends EventEmitter {
       this.strategyState = await onCandle(this.strategyState, this.lastCandle) // send closed candle data
       this.lastCandle = data // save new candle data
       this._emitStrategyExecutionResults('candle', data)
+    }
+
+    // set timeout while waiting for next candle
+    this._setNextCandleTimeout()
+  }
+
+  /**
+   * @private
+   */
+  _setNextCandleTimeout () {
+    if (this.paused || this.stopped) return
+
+    if (this.nextCandleTimeout) clearTimeout(this.nextCandleTimeout)
+
+    const { timeframe } = this.strategyOptions
+    const cWidth = candleWidth(timeframe)
+    // use candle duration as additional time to wait for candle
+    const timeToWaitForCandle = this._calculateTimeToWaitForCandle(cWidth)
+    const sinceLastCandle = Date.now() - this.lastCandle.mts
+    const timeout = timeToWaitForCandle - sinceLastCandle
+
+    this.nextCandleTimeout = setTimeout(async () => {
+      await this._createNextCandleFromLast(cWidth)
+    }, timeout)
+  }
+
+  /**
+   * @private
+   */
+  _calculateTimeToWaitForCandle (cWidth) {
+    return cWidth * 1.5
+  }
+
+  /**
+   * @private
+   */
+  async _createNextCandleFromLast (cWidth) {
+    if (this.paused || this.stopped) return
+
+    // if no new candle received during wait time, create new from last candle
+    const sinceLastCandle = Date.now() - this.lastCandle.mts
+    const timeToWaitForCandle = this._calculateTimeToWaitForCandle(cWidth)
+    if (sinceLastCandle >= timeToWaitForCandle) {
+      const candle = this.lastCandle
+      const newCandle = this._copyCandleWithNewTime(candle, candle.mts + cWidth)
+      debug('no candle received, created new candle %j', newCandle)
+      await this._processCandleData(newCandle)
     }
   }
 
