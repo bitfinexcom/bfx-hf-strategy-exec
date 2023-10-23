@@ -24,8 +24,6 @@ const pt = new PromiseThrottle({
   promiseImplementation: Promise
 })
 const ORDER_CLOSE_EVENT = 'auth:oc'
-const WALLET_SNAPSHOT_EVENT = 'auth:ws'
-const WALLET_UPDATE_EVENT = 'auth:wu'
 
 class LiveStrategyExecution extends EventEmitter {
   /**
@@ -154,14 +152,6 @@ class LiveStrategyExecution extends EventEmitter {
     // closed orders
     this.ws2Manager.onWS(ORDER_CLOSE_EVENT, {}, async (data) => {
       this._enqueueMessage(ORDER_CLOSE_EVENT, data)
-    })
-
-    this.ws2Manager.onWS(WALLET_SNAPSHOT_EVENT, {}, async (data) => {
-      this._enqueueMessage(WALLET_SNAPSHOT_EVENT, data)
-    })
-
-    this.ws2Manager.onWS(WALLET_UPDATE_EVENT, {}, async (data) => {
-      this._enqueueMessage(WALLET_UPDATE_EVENT, data)
     })
 
     this.ws2Manager.onWS('open', {}, this._onWSOpen.bind(this))
@@ -367,31 +357,6 @@ class LiveStrategyExecution extends EventEmitter {
   /**
    * @private
    */
-  async _processWalletData (data, type) {
-    if (!this.strategyState) return
-
-    if (type === WALLET_SNAPSHOT_EVENT) {
-      this.strategyState.wallets = data._collection ? data._collection.map(wallet => {
-        return {
-          currency: wallet.currency,
-          type: wallet.type,
-          balance: wallet.balance,
-          balanceAvailable: wallet.balanceAvailable
-        }
-      }) : []
-    } else if (type === WALLET_UPDATE_EVENT && this.strategyState.wallets) {
-      this.strategyState.wallets.forEach(wallet => {
-        if (wallet.currency === data.currency && wallet.type === data.type) {
-          wallet.balance = data.balance || wallet.balance
-          wallet.balanceAvailable = data.balanceAvailable || wallet.balanceAvailable
-        }
-      })
-    }
-  }
-
-  /**
-   * @private
-   */
   async _processOrderData (data) {
     this.strategyState = await onOrder(this.strategyState, data)
   }
@@ -437,16 +402,6 @@ class LiveStrategyExecution extends EventEmitter {
 
       case ORDER_CLOSE_EVENT: {
         await this._processOrderData(data)
-        break
-      }
-
-      case WALLET_SNAPSHOT_EVENT: {
-        await this._processWalletData(data, type)
-        break
-      }
-
-      case WALLET_UPDATE_EVENT: {
-        await this._processWalletData(data, type)
         break
       }
 
@@ -504,6 +459,13 @@ class LiveStrategyExecution extends EventEmitter {
    */
   generateResults (openPosition = null) {
     return _generateStrategyResults(this.perfManager, this.strategyState, openPosition)
+  }
+
+  /**
+   * @public
+   */
+  setWallets (wallets) {
+    this.strategyState.wallets = wallets
   }
 }
 
